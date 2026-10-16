@@ -45,3 +45,10 @@ test("inline code, bold and links; Chinese punctuation stays outside a bare link
   ]);
   assert.deepEqual(proseTokens("plain"), [{ kind: "text", text: "plain" }]);
 });
+
+test("empty and whitespace-only code fences are dropped instead of rendering an empty box", () => {
+  assert.deepEqual(proseBlocks("前文\n```\n```\n后文"), [{ kind: "paragraph", text: "前文" }, { kind: "paragraph", text: "后文" }]);
+  assert.deepEqual(proseBlocks("前文\n```\n  \n```\n后文"), [{ kind: "paragraph", text: "前文" }, { kind: "paragraph", text: "后文" }]);
+  // An unclosed fence whose body is only whitespace is dropped too.
+  assert.deepEqual(proseBlocks("前文\n```\n  "), [{ kind: "paragraph", text: "前文" }]);
+});

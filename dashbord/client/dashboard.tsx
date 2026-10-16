@@ -232,12 +232,12 @@ export function DashboardView({ theme, layout, host, navigation, workspaceId, in
       // A collapsed thread in 需要处理 for its descendants says why on its parent row (P3-3); unread ones not counted there show apart.
       for (const row of section.rows) {
         const thread = row.node.children.length ? threadAttention(row.node, attentionOf) : null;
-        result.push({ kind: "row", key: row.node.agent.id, row, hostLabel: row.node.agent.hostLabel, childUnread: thread?.unread ?? 0, childAttention: thread?.count ?? 0, childPhase: thread?.phase ?? null,
+        result.push({ kind: "row", key: row.node.agent.id, row, hostLabel: row.node.agent.hostLabel, serverId: host.id, childUnread: thread?.unread ?? 0, childAttention: thread?.count ?? 0, childPhase: thread?.phase ?? null,
           childRunning: row.node.children.length ? countRunningDescendants(row) : 0, snoozed: isUnreadCompletion(row.node.agent) && snoozedAt(row.node.agent) });
       }
     }
     return result;
-  }, [rows, sort, archiveMode, attentionOf, snoozedAt]);
+  }, [rows, sort, archiveMode, attentionOf, snoozedAt, host.id]);
   useEffect(() => { if (pendingScroll.current === null || !items.length) return; const offset = pendingScroll.current; pendingScroll.current = null; scrollOffset.current = offset; if (offset > 0) setTimeout(() => list.current?.scrollToOffset({ offset, animated: false }), 0); }, [items.length]);
   const selected = selectedId ? agents.find(agent => agent.id === selectedId) : undefined;
   const scopeIds = useMemo(() => new Set(scoped.filter(agent => matchesAgentStatus(agent, status) && (readFilter === "all" || completionReadState(agent) === readFilter) && (focus === "all" || attentionOf(agent))).map(a => a.id)), [scoped, status, readFilter, focus, attentionOf]);
@@ -479,7 +479,7 @@ export function DashboardView({ theme, layout, host, navigation, workspaceId, in
           onChange={value => { void preferences.mutate({ settings: { childCompletions: value } }).catch(() => toast.error(t("coreDashboard.settingsWereNotSavedTryAgain"))); }} />
       </View>
     </Sheet>
-    <ProjectSheet theme={theme} open={sheet === "project"} onClose={() => setSheet(null)} projects={projects} total={ranged.length} value={project} onChange={value => { setProject(value); setWorkspace(workspaceDefault); setCheckout("all"); }} />
+    <ProjectSheet theme={theme} open={sheet === "project"} onClose={() => setSheet(null)} projects={projects} total={ranged.length} value={project} onChange={value => { setProject(value); setWorkspace(workspaceDefault); setCheckout("all"); }} serverId={host.id} />
     <RangeSheet theme={theme} open={sheet === "range"} onClose={() => setSheet(null)} value={range} onChange={setRange} />
     <FilterSheet theme={theme} open={sheet === "filters"} onClose={() => setSheet(null)} archiveMode={archiveMode} state={filterState} checkouts={checkouts} workspaces={workspaces} providers={providers} showWorkspace={!workspaceId}
       onChange={changeFilters} onReset={resetFilters} savedViews={savedViews} canSave={preferences.ready}

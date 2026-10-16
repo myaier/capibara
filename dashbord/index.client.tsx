@@ -11,6 +11,7 @@ import { getClientChunk } from "./shared/ui-chunk";
 import { UI_CHUNK } from "./shared/generated/ui-chunk-manifest";
 import { ArchivesSidebarItem, ObservatorySidebarItem, ScheduleSidebarItem } from "./client/sidebar";
 import { createAttentionStores } from "./client/use-attention";
+import { ProjectIdentityProvider } from "./client/project-identity";
 import { registerClientHost, hostRegistry } from "./client/host-registry";
 
 // The manifest requires Paseo 0.11.1, whose screen and sidebar APIs are always present.
@@ -19,10 +20,10 @@ export default function contribute(client: PluginClientContext) {
   const lazy = lazySurfaces(client, { rpc: getClientChunk, manifest: UI_CHUNK, label: () => t("boot.name"), text: i18n });
   // One set of attention stores per registration, shared by resident badges and lazy views.
   const attentionStores = createAttentionStores();
-  const surface = (id: string): ComponentType<any> => { const Surface = lazy(id); return (props: any) => <Surface {...props} attentionStores={attentionStores} />; };
+  const surface = (id: string): ComponentType<any> => { const Surface = lazy(id); return (props: any) => <ProjectIdentityProvider><Surface {...props} attentionStores={attentionStores} /></ProjectIdentityProvider>; };
   const AttentionPopover = lazy("attention-popover");
-  const Sidebar = (props: PluginSidebarItemProps) => <ObservatorySidebarItem {...props} stores={attentionStores} AttentionPopover={AttentionPopover} />;
-  const Schedules = (props: PluginSidebarItemProps) => <ScheduleSidebarItem {...props} stores={attentionStores} />;
+  const Sidebar = (props: PluginSidebarItemProps) => <ProjectIdentityProvider><ObservatorySidebarItem {...props} stores={attentionStores} AttentionPopover={AttentionPopover} /></ProjectIdentityProvider>;
+  const Schedules = (props: PluginSidebarItemProps) => <ProjectIdentityProvider><ScheduleSidebarItem {...props} stores={attentionStores} /></ProjectIdentityProvider>;
   const screenList: Array<[string, MessageId, ComponentType<PluginSidebarItemProps>]> = [
     ["observatory", "boot.screenTitle", Sidebar], ["archives", "boot.archivesTitle", ArchivesSidebarItem], ["schedule-runs", "boot.schedulesTitle", Schedules],
   ];

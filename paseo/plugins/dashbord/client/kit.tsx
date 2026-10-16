@@ -1,14 +1,15 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, Modal, ScrollView, TextInput } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View, type LayoutChangeEvent, type StyleProp, type TextInput as NativeTextInput, type ViewStyle } from "react-native";
+import { ActivityIndicator, Image, Platform, Pressable, StyleSheet, Text, View, type LayoutChangeEvent, type StyleProp, type TextInput as NativeTextInput, type ViewStyle } from "react-native";
 import { addDefaults, t } from "../shared/i18n";
 import { kitTime, kitUi } from "../shared/locales/kit/zh-CN.json";
 
 /**
  * Paseo-native UI kit. Every plugin in this collection carries an identical copy (plugins install
  * independently). The copies are generated from the collection's `kit/` directory: edit that source and sync,
- * never one plugin's copy.
+ * never one plugin's copy. Local addition (no collection source in this repository yet): `HueDot` and
+ * `ProjectMark` accept an exact `color`, and `ProjectMark` an `icon` image, for the host's Paseo project identity.
  * Scales mirror the host app: 4-pt spacing, 12/13/14/16 type, 8 px control radius, 28/32 px controls,
  * regular-weight button text, one primary action per view. Surfaces, text and the primary button come from the
  * host theme; states and categories use the vivid palette below (`hue`, `toneColor`, `hueFor`).
@@ -248,14 +249,19 @@ export function StatusDot({ theme, tone, size = 8 }: { theme: PluginTheme; tone:
   return <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: tone === "neutral" ? theme.colors.foregroundMuted : toneColor(theme, tone, "mark"), opacity: tone === "neutral" ? 0.6 : 1 }} />;
 }
 
-/** A dot in any palette hue (legends, categories, project colors). */
-export function HueDot({ theme, hue: name, size = 8 }: { theme: PluginTheme; hue: Hue; size?: number }) {
-  return <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: hue(theme, name) }} />;
+/** A dot in any palette hue (legends, categories, project colors); an exact `color` wins over the palette hue. */
+export function HueDot({ theme, hue: name, size = 8, color }: { theme: PluginTheme; hue: Hue; size?: number; color?: string | null }) {
+  return <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: color ?? hue(theme, name) }} />;
 }
-/** Colored initial for a project / repository / workspace; the color is stable per name (`hueFor`). */
-export function ProjectMark({ theme, name, size = 18 }: { theme: PluginTheme; name: string; size?: number }) {
+/**
+ * Colored initial for a project / repository / workspace. With `color` and `icon` (from the host's project identity,
+ * client/project-identity) it wears exactly Paseo's look: the discovered or uploaded icon image, else Paseo's identity
+ * color behind the initial; without them it falls back to the stable name hue (`hueFor`).
+ */
+export function ProjectMark({ theme, name, size = 18, color, icon }: { theme: PluginTheme; name: string; size?: number; color?: string | null; icon?: string | null }) {
+  if (icon) return <Image accessibilityElementsHidden importantForAccessibility="no" source={{ uri: icon, width: size, height: size }} style={{ width: size, height: size }} />;
   const initial = Array.from(name.trim().replace(/^[^\p{L}\p{N}]+/u, ""))[0]?.toUpperCase() ?? "#";
-  return <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: size, height: size, borderRadius: Math.round(size * 0.3), alignItems: "center", justifyContent: "center", backgroundColor: hue(theme, hueFor(name)) }}>
+  return <View accessibilityElementsHidden importantForAccessibility="no" style={{ width: size, height: size, borderRadius: Math.round(size * 0.3), alignItems: "center", justifyContent: "center", backgroundColor: color ?? hue(theme, hueFor(name)) }}>
     <Text style={{ color: "#ffffff", fontSize: Math.round(size * 0.6), lineHeight: size, fontWeight: "600", textAlign: "center" }}>{initial}</Text>
   </View>;
 }

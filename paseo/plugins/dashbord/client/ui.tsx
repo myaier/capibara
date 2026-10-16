@@ -6,6 +6,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { completionReadState, stopShown, stopUnseen, waitingKind, type AgentRecord, type AgentStatus } from "../shared/model";
 import { stopLabels } from "../shared/stop-reason";
 import { IconButton, ProjectMark, Sheet, StatusDot, fontSize, hairline, hue, radius, space, toneColor, type Tone } from "./kit";
+import { agentProjectRef, useProjectIdentityResolver } from "./project-identity";
 import { useForeground } from "./use-foreground";
 
 /** Plugin-local building blocks on top of the shared kit (./kit.tsx stays a verbatim copy). */
@@ -66,8 +67,10 @@ export function StateDot({ theme, tone, size = 8 }: { theme: PluginTheme; tone: 
 }
 
 /** project · worktree · branch on one line: the project's colour mark, git parts in violet; each part keeps its own accessible name. */
-export function IdentityLine({ theme, agent, project = true, compact = false }: { theme: PluginTheme; agent: AgentRecord; project?: boolean; compact?: boolean }) {
+export function IdentityLine({ theme, agent, project = true, compact = false, serverId }: { theme: PluginTheme; agent: AgentRecord; project?: boolean; compact?: boolean; serverId?: string | null }) {
   const muted = theme.colors.foregroundMuted, git = hue(theme, "violet");
+  const projectRef = agentProjectRef(agent.projectId, serverId ?? null);
+  const identity = useProjectIdentityResolver()(projectRef.serverId, projectRef.ref);
   const parts: Array<{ key: string; label: string; text: string; icon?: string }> = [];
   if (project) parts.push({ key: "project", label: t("secondaryUi.project", { value1: agent.projectName }), text: agent.projectName });
   // Phones keep two parts: a worktree is usually named after its branch.
@@ -78,7 +81,7 @@ export function IdentityLine({ theme, agent, project = true, compact = false }: 
     {parts.map((part, index) => <Fragment key={part.key}>
       {index > 0 ? <Text style={{ color: muted, fontSize: fontSize.meta }}>·</Text> : null}
       <View accessibilityLabel={part.label} style={{ flexDirection: "row", alignItems: "center", gap: part.key === "project" ? 5 : 3, flexShrink: 1, minWidth: 0 }}>
-        {part.key === "project" ? <ProjectMark theme={theme} name={part.text} size={14} /> : null}
+        {part.key === "project" ? <ProjectMark theme={theme} name={part.text} size={14} color={identity?.color} icon={identity?.icon} /> : null}
         {part.icon ? <Icon name={part.icon} size={12} color={git} /> : null}
         <Text numberOfLines={1} style={{ flexShrink: 1, color: muted, fontSize: fontSize.meta, lineHeight: 17 }}>{part.text}</Text>
       </View>

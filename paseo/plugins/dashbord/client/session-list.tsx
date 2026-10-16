@@ -11,7 +11,8 @@ import { reasonLine, type AttentionPhase, type ReasonLine } from "../shared/atte
 import type { HeartbeatSummary } from "../shared/schedules";
 import { harnessOf, type Harness } from "../shared/harness";
 import type { ProviderBases } from "../shared/provider-bases";
-import { HueDot, MetaLine, aria, fontSize, hairline, hue as paletteHue, hueFor, radius, relativeTime, space } from "./kit";
+import { MetaLine, ProjectMark, aria, fontSize, hairline, hue as paletteHue, hueFor, radius, relativeTime, space } from "./kit";
+import { agentProjectRef, useProjectIdentityResolver } from "./project-identity";
 import { providerLine, readLabel, shortDuration, stateName } from "./ui";
 import { Flash, Pop, motionKey, useChangeCount, useReorderMotion } from "./motion";
 import { LiveTimer, PhasePill, PhaseTag, Spinner, StatusGlyph, activePhases, hueColor, loudPhases, phaseOf, phases, tint, tintAlpha, type Hue, type Phase } from "./status";
@@ -29,7 +30,7 @@ export type SessionItem =
    * `childAttention`: descendants that need you, with the most urgent one's phase (`childPhase`), so a collapsed thread pulled
    * into 需要处理 says why; `childUnread`: the unread ones not among them (shared/attention.ts `threadAttention`).
    */
-  | { kind: "row"; key: string; row: DashboardRow; hostLabel?: string; childUnread: number; childAttention: number; childPhase: AttentionPhase | null; childRunning: number; snoozed: boolean };
+  | { kind: "row"; key: string; row: DashboardRow; hostLabel?: string; serverId?: string; childUnread: number; childAttention: number; childPhase: AttentionPhase | null; childRunning: number; snoozed: boolean };
 
 /** Running turns show elapsed time; everything else the latest activity. */
 export function agentTimeLabel(agent: AgentRecord, now: number): string {
@@ -104,6 +105,9 @@ export const SessionRow = memo(function SessionRow({ item, theme, compact, selec
   const time = trailing.pill ? timeLabel : null;
   const hostLabel = agent.hostOnline === false ? t("fleet.hostOffline", { host: agent.hostLabel ?? "" }) : item.hostLabel ?? agent.hostLabel;
   const meta = depth === 0 ? [hostLabel, agent.projectName, checkout, time, providerLine(agent)] : [hostLabel, time, providerLine(agent)];
+  // The project wears Paseo's own color and icon (its key when placement metadata has one, else its host-local id).
+  const projectRef = agentProjectRef(agent.projectId, item.serverId ?? null);
+  const projectIdentity = useProjectIdentityResolver()(projectRef.serverId, projectRef.ref);
   const settled = phase === "closed" || phase === "canceled" || phase === "snoozed";
   const menuEvents = onActions ? {
     onContextMenu: (event: { preventDefault(): void; stopPropagation(): void; nativeEvent: { pageX?: number; pageY?: number } }) => {
@@ -145,7 +149,7 @@ export const SessionRow = memo(function SessionRow({ item, theme, compact, selec
             {heartbeats?.length ? <HeartbeatBadge theme={theme} heartbeats={heartbeats} /> : null}
             {agent.labels["paseo.schedule-id"] ? <ScheduleBadge theme={theme} /> : null}
             <View style={{ flex: 1, minWidth: 120, flexDirection: "row", alignItems: "center", gap: 5 }}>
-              {depth === 0 ? <HueDot theme={theme} hue={hueFor(agent.projectName)} size={7} /> : null}
+              {depth === 0 ? <ProjectMark theme={theme} name={agent.projectName} size={14} color={projectIdentity?.color} icon={projectIdentity?.icon} /> : null}
               <View style={{ flex: 1, minWidth: 0 }}><MetaLine theme={theme} parts={[...meta, row.node.cycleBroken ? t("secondarySessionList.aCycleInTheParentRelationship") : null]} /></View>
             </View>
           </View>

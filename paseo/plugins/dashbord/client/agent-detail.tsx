@@ -173,7 +173,7 @@ export function AgentDetail({ hostId, agent, agents, theme, compact, navigation,
       {!compact && onClose ? <><Spacer /><IconButton theme={theme} icon="X" label={t("coreAgentDetail.closeDetails")} size="sm" onPress={onClose} /></> : null}
     </View>
     <Text selectable numberOfLines={compact ? undefined : 3} style={{ color: colors.foreground, fontSize: fontSize.heading, fontWeight: "600", lineHeight: 26 }}>{agent.title}</Text>
-    <IdentityLine theme={theme} agent={agent} compact={compact} />
+    <IdentityLine theme={theme} agent={agent} compact={compact} serverId={hostId} />
     <LiveMeta theme={theme} agent={agent} totalRunMs={observed?.totalRunMs} tools={result.data?.metrics.tools} />
     {agent.background && agent.status === "running" && !agent.activeTurnStartedAt ? <Banner theme={theme} tone="info" icon="Workflow"
       message={t("coreAgentDetail.thisTurnHasEndedSubtasksAreStill", { value1: agent.background.running, value2: agent.background.labels.length ? t("coreAgentDetail.message", { value1: joinList(agent.background.labels) }) : "" })}
