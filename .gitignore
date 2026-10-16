@@ -1,0 +1,17 @@
+node_modules/
+dist/
+preview-dist/
+preview/dist/
+test-results/
+playwright-report/
+coverage/
+*.log
+.DS_Store
+.paseo-package-*/
+
+# Private material never enters this public repository: keep acceptance evidence, machine notes and logs here.
+.private/
+.env
+.env.*
+*.pem
+*.key

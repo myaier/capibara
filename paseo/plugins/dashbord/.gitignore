@@ -1,0 +1,10 @@
+node_modules/
+dist/
+preview-dist/
+test-results/
+playwright-report/
+*.log
+.DS_Store
+preview/dist/
+docs/screenshots/live-*.png
+artifacts/

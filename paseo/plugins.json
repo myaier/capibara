@@ -1,0 +1,20 @@
+{
+  "dashbord": {
+    "source": "paseo/plugins/dashbord",
+    "buildCheck": ["scripts/build-client-chunks.mjs", "--check"],
+    "include": [
+      "paseo-plugin.json",
+      "package.json",
+      "index.client.tsx",
+      "index.server.ts",
+      "client",
+      "server",
+      "shared",
+      "assets",
+      "LICENSE",
+      "NOTICE",
+      "OVERVIEW.md",
+      "CHANGELOG.md"
+    ]
+  }
+}

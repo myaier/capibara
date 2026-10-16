@@ -1,0 +1,3 @@
+#!/bin/sh
+# Enabled per clone with: git config core.hooksPath .githooks
+exec node paseo/scripts/check-private.mjs --staged

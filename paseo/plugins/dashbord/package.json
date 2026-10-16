@@ -1,0 +1,33 @@
+{
+  "name": "agent-observatory",
+  "private": true,
+  "version": "2.19.0-dev.8",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --import ./tests/i18n-setup.ts --test tests/*.test.ts",
+    "preview:build": "node scripts/build-preview.mjs",
+    "test:ui": "playwright test --config tests/playwright.config.mjs",
+    "build": "node scripts/build-client-chunks.mjs",
+    "check:build": "node scripts/build-client-chunks.mjs --check"
+  },
+  "devDependencies": {
+    "@getpaseo/client": "0.11.1",
+    "@getpaseo/plugin": "0.11.1",
+    "@getpaseo/protocol": "0.11.1",
+    "@playwright/test": "^1.63.0",
+    "@tanstack/react-query": "^5.90.11",
+    "@types/node": "^22.20.3",
+    "@types/react": "~19.2.0",
+    "esbuild": "^0.28.2",
+    "lucide-react": "1.47.0",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-web": "^0.21.2",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3",
+    "zod": "^4.4.3"
+  },
+  "description": "A native, mobile-ready observability dashboard for Paseo agents and subagents",
+  "license": "MIT"
+}

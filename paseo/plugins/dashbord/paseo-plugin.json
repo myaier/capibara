@@ -1,0 +1,15 @@
+{
+  "id": "agent-observatory",
+  "name": "Agent Observatory",
+  "description": "Results-first dashboard for every Paseo agent and subagent: unread queue, timelines, usage and token statistics and scheduled runs. English and Simplified Chinese, plus user languages.",
+  "icon": "assets/icon.png",
+  "media": [
+    "assets/screenshot-sessions.png",
+    "assets/screenshot-tokens.png",
+    "assets/screenshot-schedules.png",
+    "assets/screenshot-mobile.png"
+  ],
+  "requirements": {
+    "paseo": ">=0.11.1"
+  }
+}
