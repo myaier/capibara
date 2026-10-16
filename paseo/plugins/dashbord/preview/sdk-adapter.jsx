@@ -200,6 +200,13 @@ export async function fixtureRpc(contract, input) {
     let result;
     switch (contract.name) {
       // Like server/plugin-update.ts: the apply answers at once, then the new revision answers after the restart.
+      // Like server/host-memory.ts on this page's installation: the latest sighting per host.
+      case "observatory.hosts.memory.get": result = { hosts: [...(globalThis.__previewHostMemory ?? [])] }; break;
+      case "observatory.hosts.memory.put": {
+        const byHost = new Map((globalThis.__previewHostMemory ?? []).map(entry => [entry.serverId, entry]));
+        for (const entry of input.hosts) { const known = byHost.get(entry.serverId); if (!known || Date.parse(entry.seenAt) >= Date.parse(known.seenAt)) byHost.set(entry.serverId, entry); }
+        globalThis.__previewHostMemory = [...byHost.values()]; result = { hosts: [...globalThis.__previewHostMemory] }; break;
+      }
       case "observatory.update.get": case "observatory.update.dismiss": case "observatory.update.apply": {
         const update = globalThis.__previewUpdate ??= previewUpdateState(scenarioName());
         result = previewUpdateRpc(update, contract, input, { fail: scenarioName() === "update-fails", host: globalThis.__previewPageHost ?? "fixture-host" }); break;

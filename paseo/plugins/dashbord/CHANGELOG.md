@@ -2,10 +2,11 @@
 
 ## 2.20.0-dev.1 · Capibara · 2026-10-16
 
-- The version chip at the top right becomes **Hosts**. Its panel lists every host Paseo is connected to with this plugin's state there: up to date, update available, updating, failed, offline, or no observatory running. The chip shows the version while every host is fine and what needs you otherwise; phones show it only then, and the ⋯ menu always offers **Hosts**.
-- **Update all** brings every installed host to the revision this page's installation offers, through each host's own reviewed update: other hosts first, this page's last. A host whose source offers a different revision is left alone and says so. **Not now** postpones the prompt as before.
-- **Install** (or **Sync all**, which also updates) puts the observatory on a connected host where none runs. After you confirm the commands shown, it opens a terminal in one of that host's workspaces and runs `paseo plugin add` with this installation's own source; where the plugin is already configured there, it enables and updates it in place instead, keeping that host's source. Windows hosts run it through cmd.exe, others through /bin/sh. A failure keeps the terminal open and shows its last lines and the commands to run by hand.
-- The device never reads a host's daemon config. A host can be ignored so it no longer prompts.
+- The version chip at the top right becomes **Hosts**. It shows the version while every host is fine, progress while updating, and how many hosts need attention otherwise (red when one failed); phones show it only then, and the ⋯ menu always offers **Hosts**.
+- The Hosts panel lists every host Paseo is connected to: up to date, update available, updating, failed, not installed, disabled, too old (or failing to start), plugins turned off, or offline with the version it last ran and how long ago. An offline host that last ran an older revision is marked **needs sync** and prompts again once it is back.
+- **Update** on a row updates that host; **Sync all** asks once, then brings every installed host to the revision this page's installation offers through each host's own reviewed update (other hosts first, this page's last) and runs the install, enable or upgrade each other host needs. **Release notes** opens the target's notes; **Not now** postpones the prompt as before.
+- Install, enable and upgrade show their commands before anything runs, then open a terminal in one of that host's workspaces: `paseo plugin add` with this installation's own source, `paseo plugin enable agent-observatory`, or `paseo plugin update agent-observatory --yes` followed by `paseo plugin reload agent-observatory`. Windows hosts run them through cmd.exe, others through /bin/sh. A failure keeps the terminal open and shows its last lines and the commands to run by hand.
+- For a host without a running installation the panel reads its daemon config and keeps only whether this plugin is installed and enabled and whether plugins are on. This page's installation remembers when each host was last seen and which version it ran. A host can be ignored so it no longer prompts.
 
 ## 2.19.0-dev.8 · Capibara · 2026-10-16
 

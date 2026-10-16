@@ -28,7 +28,7 @@ test("a command runs in a terminal of one of the host's workspaces and clears on
   assert.deepEqual(f.acquired, ["srv_demo_build"]);
   assert.equal(f.created.length, 1);
   assert.equal(f.created[0]!.workspaceId, "ws_demo"); assert.equal(f.created[0]!.command, "/bin/sh");
-  assert.match(f.created[0]!.args![1]!, /if "\$P" plugin add git:https:\/\/github\.com\/myaier\/capibara\.git:dashbord; then R=ok;/);
+  assert.match(f.created[0]!.args![1]!, /if "\$P" plugin add git:https:\/\/github\.com\/myaier\/capibara\.git:dashbord; then R=ok; else R=failed; fi/);
   assert.deepEqual(seen, ["running", "waiting"]);
   assert.equal(f.jobs.get().has("srv_demo_build"), false);
   assert.deepEqual(f.killed, ["term_demo"]);
@@ -36,9 +36,9 @@ test("a command runs in a terminal of one of the host's workspaces and clears on
 
 test("a Windows workspace runs the command through cmd.exe", async () => {
   const f = fixture({ directory: "C:\\Users\\demo\\project" });
-  assert.equal(await runHostCommand("srv_demo_win", "repair", source, f.deps, f.jobs), "ok");
+  assert.equal(await runHostCommand("srv_demo_win", "install", source, f.deps, f.jobs), "ok");
   assert.equal(f.created[0]!.command, "cmd.exe");
-  assert.match(f.created[0]!.args![3]!, /^where paseo >nul 2>nul && \(\(call paseo plugin add git:https:\/\/github\.com\/myaier\/capibara\.git:dashbord \|\| /);
+  assert.match(f.created[0]!.args![3]!, /^where paseo >nul 2>nul && \(\(call paseo plugin add git:https:\/\/github\.com\/myaier\/capibara\.git:dashbord\) && echo /);
 });
 
 test("a failed command keeps its terminal and the output's last lines; a missing CLI or workspace says so", async () => {
@@ -65,7 +65,7 @@ test("an unknown or unsafe source never reaches the host", async () => {
 test("one command per host: a second request while one runs is refused, a failed one can be retried", async () => {
   const f = fixture({ outputs: [[], [], ["__OBSERVATORY_HOST_COMMAND__ failed"]] });
   const first = runHostCommand("srv_demo_build", "install", source, f.deps, f.jobs);
-  assert.equal(await runHostCommand("srv_demo_build", "repair", source, f.deps, f.jobs), "busy");
+  assert.equal(await runHostCommand("srv_demo_build", "enable", null, f.deps, f.jobs), "busy");
   assert.equal(await first, "failed");
   assert.equal(await runHostCommand("srv_demo_build", "install", source, f.deps, f.jobs), "failed");
   assert.equal(f.created.length, 2);
@@ -76,6 +76,6 @@ test("a command that never reports, or an installation that never starts, ends a
   assert.equal(await runHostCommand("srv_demo_build", "install", source, silent.deps, silent.jobs), "timeout");
   assert.deepEqual(silent.jobs.get().get("srv_demo_build")?.output, ["still cloning"]);
   const stalled = fixture({ registered: false });
-  assert.equal(await runHostCommand("srv_demo_build", "repair", source, stalled.deps, stalled.jobs), "not-running");
+  assert.equal(await runHostCommand("srv_demo_build", "upgrade", null, stalled.deps, stalled.jobs), "not-running");
   assert.equal(stalled.jobs.get().get("srv_demo_build")?.state, "failed");
 });

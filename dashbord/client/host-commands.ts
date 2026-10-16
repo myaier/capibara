@@ -40,25 +40,25 @@ export const hostJobs = createStore<ReadonlyMap<string, HostJob>>(new Map());
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error)).slice(0, 300);
 
 /**
- * Runs the install command (see `hostCommand`) on another host in a terminal of one of its workspaces, and follows it until the
- * host's installation registers. Success closes the terminal; a failure keeps it open with the output's last lines on the job.
- * A host has at most one command at a time.
+ * Runs one install, enable or upgrade (see `hostCommand`) on another host in a terminal of one of its workspaces, and follows it
+ * until the host's installation registers. Success closes the terminal; a failure keeps it open with the output's last lines on
+ * the job. A host has at most one command at a time.
  */
 export async function runHostCommand(serverId: string, kind: HostCommandKind, source: PluginSource | null | undefined, deps: CommandDeps,
   jobs: Store<ReadonlyMap<string, HostJob>> = hostJobs): Promise<HostJobResult | "busy"> {
   const running = jobs.get().get(serverId);
   if (running && running.state !== "failed") return "busy";
-  const command = hostCommand(source), startedAt = deps.now();
-  setEntry(jobs, serverId, { serverId, kind, command: command ? displayCommand(command.add) : "", state: "running", startedAt, result: null, output: [], error: null, workspaceId: null, terminalId: null });
+  const steps = hostCommand(kind, source), startedAt = deps.now();
+  setEntry(jobs, serverId, { serverId, kind, command: steps ? steps.map(displayCommand).join(" && ") : "", state: "running", startedAt, result: null, output: [], error: null, workspaceId: null, terminalId: null });
   const mine = () => jobs.get().get(serverId)?.startedAt === startedAt;
   const update = (patch: Partial<HostJob>) => { const job = jobs.get().get(serverId); if (job && mine()) setEntry(jobs, serverId, { ...job, ...patch }); };
   const fail = (result: HostJobResult, error: string, output?: string[]) => { update({ state: "failed", result, error, ...(output ? { output } : {}) }); return result; };
-  if (!command) return fail("error", t("hosts.noSource"));
+  if (!steps) return fail("error", t("hosts.noSource"));
   try {
     const host = deps.acquire(serverId);
     const workspace = pickWorkspace((await host.workspaces.list()).entries);
     if (!workspace) return fail("no-workspace", t("hosts.noWorkspace"));
-    const invocation = terminalInvocation(hostPlatform(workspace.directory), command);
+    const invocation = terminalInvocation(hostPlatform(workspace.directory), steps);
     const terminal = await host.terminals.create({ workspaceId: workspace.id, name: t("hosts.terminalName"), command: invocation.command, args: invocation.args });
     update({ workspaceId: workspace.id, terminalId: terminal.id });
     for (;;) {

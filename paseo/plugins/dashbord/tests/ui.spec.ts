@@ -85,20 +85,22 @@ test("hosts: the version sits at the top right and the panel says every host is 
   await expect(dialog.getByText("所有主机都已是最新版本。", { exact: true })).toBeVisible();
   const row = dialog.getByTestId("host-row-fixture-host");
   await expect(row).toContainText("v2.18.0-dev.10 · 最新"); await expect(row).toContainText("当前页面");
-  await expect(dialog.getByRole("button", { name: "全部更新", exact: true })).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: "全部同步", exact: true })).toHaveCount(0);
 });
 
-test("hosts: an update prompt shows the release notes; 暂不更新 hides it without updating", async ({ page }, testInfo) => {
+test("hosts: an update is pending until 暂不更新; the release notes open from 更新说明", async ({ page }, testInfo) => {
   await open(page, testInfo, "update-available");
   const chip = page.getByTestId("hosts-chip");
-  await expect(chip).toHaveAccessibleName(compact(page) ? "有更新" : "有更新 · 1 台");
+  await expect(chip).toHaveAccessibleName("1 台待处理");
   await chip.click();
   const dialog = page.getByRole("dialog", { name: "主机", exact: true });
-  await expect(dialog.getByText("最新版本 v2.18.0-dev.11（8e1f2c3）", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("最新 v2.18.0-dev.11（8e1f2c3）", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("时间线支持按工具筛选。")).toHaveCount(0);
+  await dialog.getByRole("button", { name: "更新说明", exact: true }).click();
   await expect(dialog.getByText("2.18.0-dev.11 · Capibara · 2026-10-16", { exact: true })).toBeVisible();
   await expect(dialog.getByText("时间线支持按工具筛选。")).toBeVisible();
   await expect(dialog.getByTestId("host-row-fixture-host")).toContainText("v2.18.0-dev.10 · 可更新");
+  await expect(dialog.getByTestId("host-row-fixture-host").getByRole("button", { name: "更新", exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("hosts-update-available.png") });
   await dialog.getByRole("button", { name: "暂不更新", exact: true }).click();
   await expect(dialog).toHaveCount(0);
@@ -107,15 +109,19 @@ test("hosts: an update prompt shows the release notes; 暂不更新 hides it wit
   expect(await page.evaluate(() => (globalThis as Fixture).__previewAgentOperations.filter(op => op.type === "plugin-update"))).toEqual([]);
 });
 
-test("hosts: 全部更新 shows estimated progress through the restart and confirms the new version", async ({ page }, testInfo) => {
+test("hosts: 全部同步 asks once, then shows estimated progress through the restart and confirms the new version", async ({ page }, testInfo) => {
   await open(page, testInfo, "update-available");
   await page.getByTestId("hosts-chip").click();
   const dialog = page.getByRole("dialog", { name: "主机", exact: true });
-  await dialog.getByRole("button", { name: "全部更新", exact: true }).click();
+  await dialog.getByRole("button", { name: "全部同步", exact: true }).click();
+  await expect(dialog.getByText("把 Preview 更新到 v2.18.0-dev.11", { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => (globalThis as Fixture).__previewAgentOperations.filter(op => op.type === "plugin-update"))).toEqual([]);
+  await dialog.getByRole("button", { name: "确认执行", exact: true }).click();
   const progress = dialog.getByRole("progressbar", { name: "更新进度" });
   await expect(progress.getByText("正在拉取并构建新版本…", { exact: true })).toBeVisible();
   const first = Number(await progress.getAttribute("aria-valuenow"));
   expect(first).toBeGreaterThan(0); expect(first).toBeLessThan(90);
+  await expect(page.getByTestId("hosts-chip")).toHaveAccessibleName(/^更新中 \d+%$/);
   expect(await page.evaluate(() => (globalThis as Fixture).__previewAgentOperations.filter(op => op.type === "plugin-update")))
     .toEqual([{ type: "plugin-update", commit: "8e1f2c3d4b5a69788796a5b4c3d2e1f00a1b2c3d" }]);
   await page.screenshot({ path: testInfo.outputPath("hosts-update-progress.png") });
@@ -149,40 +155,42 @@ test("hosts: a revision without a new version says so instead of claiming the no
   await open(page, testInfo, "update-docs-only");
   await page.getByTestId("hosts-chip").click();
   const dialog = page.getByRole("dialog", { name: "主机", exact: true });
+  await dialog.getByRole("button", { name: "更新说明", exact: true }).click();
   await expect(dialog.getByText("这个新提交没有新的版本说明，可能只改了文档或仓库里的其他插件。", { exact: true })).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "全部更新", exact: true })).toBeEnabled();
+  await expect(dialog.getByRole("button", { name: "全部同步", exact: true })).toBeEnabled();
 });
 
 test("hosts: a failed update keeps the current version and offers a retry", async ({ page }, testInfo) => {
   await open(page, testInfo, "update-fails");
   await page.getByTestId("hosts-chip").click();
   const dialog = page.getByRole("dialog", { name: "主机", exact: true });
-  await dialog.getByRole("button", { name: "全部更新", exact: true }).click();
   const row = dialog.getByTestId("host-row-fixture-host");
+  await row.getByRole("button", { name: "更新", exact: true }).click();
   await expect(row).toContainText("更新失败，当前版本保持不变：模拟构建失败");
   await expect(row.getByRole("button", { name: "重试", exact: true })).toBeEnabled();
+  await expect(page.getByTestId("hosts-chip")).toHaveAccessibleName("1 台待处理");
 });
 
-test("hosts: every connected host is listed; 全部同步 confirms the install command, then updates the other hosts before this page", async ({ page }, testInfo) => {
+test("hosts: every connected host is listed with its state; 全部同步 installs the missing host and updates the others before this page", async ({ page }, testInfo) => {
   await open(page, testInfo, "fleet-hosts");
   const chip = page.getByTestId("hosts-chip");
-  // A host without a registered installation is called missing only after it had 10 s to start one.
-  await expect(chip).toHaveAccessibleName(compact(page) ? "有更新" : "有更新 · 2 台");
-  await expect(chip).toHaveAccessibleName(compact(page) ? "主机 3" : "3 台主机待处理", { timeout: 15_000 });
+  await expect(chip).toHaveAccessibleName("3 台待处理");
   await chip.click();
   const dialog = page.getByRole("dialog", { name: "主机", exact: true });
-  const mac = dialog.getByTestId("host-row-mac"), win = dialog.getByTestId("host-row-win"), build = dialog.getByTestId("host-row-build");
+  const mac = dialog.getByTestId("host-row-mac"), win = dialog.getByTestId("host-row-win"), build = dialog.getByTestId("host-row-build"), old = dialog.getByTestId("host-row-old");
   await expect(mac).toContainText("MacBook Pro"); await expect(mac).toContainText("当前页面"); await expect(mac).toContainText("v2.18.0-dev.10 · 可更新");
   await expect(win).toContainText("v2.18.0-dev.10 · 可更新");
-  await expect(build).toContainText("没有运行中的观测台（未安装、已禁用或启动失败）");
-  await expect(dialog.getByText("最新版本 v2.18.0-dev.11（8e1f2c3）", { exact: true })).toBeVisible();
+  await expect(win.getByRole("button", { name: "更新", exact: true })).toBeVisible();
+  await expect(build).toContainText("未安装");
+  await expect(build.getByRole("button", { name: "安装", exact: true })).toBeVisible();
+  await expect(old).toContainText("v2.18.0-dev.10 · 离线（3 天前） · 待同步");
+  await expect(dialog.getByText("最新 v2.18.0-dev.11（8e1f2c3）", { exact: true })).toBeVisible();
+  // Only the plugin's own flags are read from the host's config.
+  expect(await page.evaluate(() => (globalThis as any).__previewConfigReads.length)).toBeGreaterThan(0);
   await page.screenshot({ path: testInfo.outputPath("hosts-panel.png") });
   await dialog.getByRole("button", { name: "全部同步", exact: true }).click();
   await expect(dialog.getByText("在 BUILD-DEMO 上安装观测台", { exact: true })).toBeVisible();
   await expect(dialog.getByText("paseo plugin add git:https://github.com/myaier/capibara.git:dashbord", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("如果那台主机已经装过（被禁用或启动失败），会改为执行：", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("paseo plugin enable agent-observatory", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("paseo plugin update agent-observatory --yes", { exact: true })).toBeVisible();
   await expect(dialog.getByText("把 WIN-DEMO-PC, MacBook Pro 更新到 v2.18.0-dev.11", { exact: true })).toBeVisible();
   await expect(dialog.getByText(/插件代码会以非沙箱方式在那台主机上运行/)).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("hosts-confirm.png") });
@@ -194,16 +202,65 @@ test("hosts: every connected host is listed; 全部同步 confirms the install c
   const terminal = await page.evaluate(() => (globalThis as any).__previewTerminals[0].options);
   expect(terminal.workspaceId).toBe("ws-build"); expect(terminal.command).toBe("cmd.exe");
   expect(terminal.args.slice(0, 3)).toEqual(["/d", "/s", "/c"]);
-  expect(terminal.args[3]).toContain("call paseo plugin add git:https://github.com/myaier/capibara.git:dashbord || (call paseo plugin enable agent-observatory && call paseo plugin update agent-observatory --yes)");
+  expect(terminal.args[3]).toContain("((call paseo plugin add git:https://github.com/myaier/capibara.git:dashbord) && echo __OBSERVATORY_HOST_COMMAND__ ok");
   await expect(toast(page, "已在 BUILD-DEMO 上安装观测台")).toBeVisible({ timeout: 10_000 });
   await expect(build).toContainText("v2.18.0-dev.11 · 最新", { timeout: 10_000 });
   await expect(toast(page, "WIN-DEMO-PC 已更新到 v2.18.0-dev.11")).toBeVisible({ timeout: 10_000 });
   await expect(win).toContainText("v2.18.0-dev.11 · 最新");
   await expect(mac).toContainText("v2.18.0-dev.11 · 最新", { timeout: 10_000 });
   expect(await page.evaluate(() => (globalThis as any).__previewTerminals[0].killed)).toBe(true);
+  // The offline host still needs the new version; it is listed, not counted, until it is back.
+  await expect(old).toContainText("待同步");
   await page.keyboard.press("Escape");
   if (compact(page)) await expect(chip).toHaveCount(0);
   else await expect(chip).toHaveAccessibleName("v2.18.0-dev.11");
+});
+
+test("hosts: 更新 on one row updates only that host", async ({ page }, testInfo) => {
+  await open(page, testInfo, "fleet-hosts");
+  await page.getByTestId("hosts-chip").click();
+  const dialog = page.getByRole("dialog", { name: "主机", exact: true });
+  await dialog.getByTestId("host-row-win").getByRole("button", { name: "更新", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (globalThis as any).__previewUpdateApplies?.map((apply: { host: string }) => apply.host))).toEqual(["win"]);
+  await expect(toast(page, "WIN-DEMO-PC 已更新到 v2.18.0-dev.11")).toBeVisible({ timeout: 10_000 });
+  await expect(dialog.getByTestId("host-row-mac")).toContainText("v2.18.0-dev.10 · 可更新");
+  expect(await page.evaluate(() => (globalThis as any).__previewTerminals.length)).toBe(0);
+});
+
+test("hosts: a disabled observatory is enabled after confirming its command", async ({ page }, testInfo) => {
+  await open(page, testInfo, "fleet-hosts&hostsCase=disabled");
+  await page.getByTestId("hosts-chip").click();
+  const dialog = page.getByRole("dialog", { name: "主机", exact: true }), build = dialog.getByTestId("host-row-build");
+  await expect(build).toContainText("已禁用");
+  await build.getByRole("button", { name: "启用", exact: true }).click();
+  await expect(dialog.getByText("在 BUILD-DEMO 上启用观测台", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("paseo plugin enable agent-observatory", { exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "确认执行", exact: true }).click();
+  expect((await page.evaluate(() => (globalThis as any).__previewTerminals[0].options)).args[3]).toContain("((call paseo plugin enable agent-observatory) && echo");
+  await expect(toast(page, "已在 BUILD-DEMO 上启用观测台")).toBeVisible({ timeout: 10_000 });
+  await expect(build).toContainText("v2.18.0-dev.11 · 最新", { timeout: 10_000 });
+});
+
+test("hosts: an installed observatory that never starts is offered an upgrade once the host had time to start it", async ({ page }, testInfo) => {
+  await open(page, testInfo, "fleet-hosts&hostsCase=too-old");
+  await page.getByTestId("hosts-chip").click();
+  const dialog = page.getByRole("dialog", { name: "主机", exact: true }), build = dialog.getByTestId("host-row-build");
+  await expect(build).toContainText("正在检查…");
+  await expect(build).toContainText("已安装，但版本过旧或启动失败", { timeout: 15_000 });
+  await build.getByRole("button", { name: "升级", exact: true }).click();
+  await expect(dialog.getByText("在 BUILD-DEMO 上升级观测台", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("paseo plugin update agent-observatory --yes", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("paseo plugin reload agent-observatory", { exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "确认执行", exact: true }).click();
+  await expect(toast(page, "BUILD-DEMO 上的观测台已升级")).toBeVisible({ timeout: 10_000 });
+});
+
+test("hosts: a host with plugins turned off says so and offers no command", async ({ page }, testInfo) => {
+  await open(page, testInfo, "fleet-hosts&hostsCase=plugins-off");
+  await page.getByTestId("hosts-chip").click();
+  const build = page.getByRole("dialog", { name: "主机", exact: true }).getByTestId("host-row-build");
+  await expect(build).toContainText("这台主机关闭了插件功能，需要先在它的 Paseo 设置 → 插件里打开");
+  await expect(build.getByRole("button", { name: /^(安装|启用|升级)$/ })).toHaveCount(0);
 });
 
 test("hosts: ignoring a host silences its prompt and keeps it listed", async ({ page }, testInfo) => {
@@ -213,12 +270,10 @@ test("hosts: ignoring a host silences its prompt and keeps it listed", async ({ 
   await dialog.getByTestId("host-row-build").getByRole("button", { name: "忽略", exact: true }).click();
   await expect(dialog.getByText("已忽略", { exact: true })).toBeVisible();
   await expect(dialog.getByTestId("host-row-build").getByRole("button", { name: "取消忽略", exact: true })).toBeVisible();
-  // Only the updates are left, so no terminal command needs confirming.
-  await expect(dialog.getByRole("button", { name: "全部更新", exact: true })).toBeVisible();
   expect(await page.evaluate(() => (globalThis as Fixture).__previewRpcCalls.filter(call => call.name === "observatory.preferences.update").map(call => (call.input as { settings?: unknown }).settings)))
     .toContainEqual({ ignoredHosts: ["build"] });
   await page.keyboard.press("Escape");
-  await expect(page.getByTestId("hosts-chip")).toHaveAccessibleName(compact(page) ? "有更新" : "有更新 · 2 台");
+  await expect(page.getByTestId("hosts-chip")).toHaveAccessibleName("2 台待处理");
 });
 
 test("hosts: a failed install keeps its output and terminal, and shows the command to run by hand", async ({ page }, testInfo) => {
@@ -237,7 +292,7 @@ test("hosts: a failed install keeps its output and terminal, and shows the comma
   await dialog.getByRole("button", { name: "复制命令", exact: true }).click();
   expect(await page.evaluate(() => (globalThis as Fixture).__previewClipboard)).toBe("paseo plugin add git:https://github.com/myaier/capibara.git:dashbord");
   expect(await page.evaluate(() => (globalThis as any).__previewTerminals[0].killed)).toBe(false);
-  await expect(page.getByTestId("hosts-chip")).toHaveAccessibleName(compact(page) ? "失败 1" : "1 台失败");
+  await expect(page.getByTestId("hosts-chip")).toHaveAccessibleName("3 台待处理");
   await page.screenshot({ path: testInfo.outputPath("hosts-install-failed.png") });
   await row.getByRole("button", { name: "查看终端", exact: true }).click();
   expect(await page.evaluate(() => (globalThis as any).__previewFleetNavigation)).toEqual({ workspaceId: "ws-build", serverId: "build" });

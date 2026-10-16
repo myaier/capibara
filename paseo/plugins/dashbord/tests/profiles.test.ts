@@ -8,7 +8,14 @@ test("the device gets each profile's own fields from the plugin, never the daemo
   assert.deepEqual(profileSummaries([{ id: "p1", name: "Opus", provider: "claude", model: "opus", modeId: "default", featureValues: { fast: true }, env: { ANTHROPIC_API_KEY: "QX7-key" }, command: ["claude"] }, null, { id: 5 }]),
     [{ id: "p1", name: "Opus", provider: "claude", model: "opus", modeId: "default", featureValues: { fast: true } }]);
   const client = join(__dirname, "..", "client");
-  for (const name of (await readdir(client)).filter(name => /\.tsx?$/.test(name))) assert.equal(/\bconfig\.get\(/.test(await readFile(join(client, name), "utf8")), false, name);
+  // The 主机 panel reads the config of a host that runs no observatory backend, and keeps only this plugin's install and enable
+  // flags (pluginConfigState) the moment it arrives. No other client code reads the daemon config.
+  const allowed: Record<string, RegExp> = { "hosts-panel.tsx": /const \{ config \} = await getPaseoClient\(serverId\)\.config\.get\(\);\s*return pluginConfigState\(config\);/ };
+  for (const name of (await readdir(client)).filter(name => /\.tsx?$/.test(name))) {
+    const text = await readFile(join(client, name), "utf8"), reads = text.match(/\bconfig\.get\(/g)?.length ?? 0;
+    if (allowed[name]) { assert.equal(reads, 1, name); assert.match(text, allowed[name]!, name); }
+    else assert.equal(reads, 0, name);
+  }
 });
 
 test("a long name or notes is shortened for display and the profile stays; what is passed on to the new Agent is never cut", () => {

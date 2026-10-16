@@ -17,13 +17,15 @@ import * as quota from "../shared/quota";
 import * as schedules from "../shared/schedules";
 
 /**
- * Two installed machines; with `uninstalled`, a third connected host has no observatory, and its terminal installs one: the
- * command reports success on the second read, then that host registers at the newest revision (`hostsCase=no-cli` fails instead).
+ * Two installed machines. With `uninstalled`, a third connected host runs no observatory and a fourth is offline, last seen three
+ * days ago on an older version. The third host's config says the plugin is not installed, or with `hostsCase=` `disabled`,
+ * `too-old` (installed and enabled but never registers) or `plugins-off`; its terminal command reports success on the second read,
+ * then the host registers at the newest revision (`hostsCase=no-cli` makes the command fail instead).
  */
 export function setupFleetFixture({ uninstalled = false } = {}) {
   const contracts = Object.values({ listHostAgents, getProviderBases, ...stats, ...tokens, ...telemetry, ...analytics, ...background, ...attention, ...receipts, ...quota, ...schedules }).filter(value => value?.name && value?.output);
   globalThis.__fleetPreviewHosts = [{ serverId: "mac", label: "MacBook Pro", status: "online" }, { serverId: "win", label: "WIN-DEMO-PC", status: "online" },
-    ...(uninstalled ? [{ serverId: "build", label: "BUILD-DEMO", status: "online" }] : [])];
+    ...(uninstalled ? [{ serverId: "build", label: "BUILD-DEMO", status: "online" }, { serverId: "old", label: "OLD-DEMO-PC", status: "offline" }] : [])];
   globalThis.__fleetPreviewClients = {};
   globalThis.__previewFleetCalls = [];
   globalThis.__previewPageHost = "mac";
@@ -43,24 +45,36 @@ export function setupFleetFixture({ uninstalled = false } = {}) {
     hostRegistry.register({ serverId: host.serverId, hostname: host.label, protocol: 1, version: HOST_DATA_VERSION, capabilities: ["fleet-read-v1", "fleet-directory-v1"], now: new Date().toISOString(), nonce: "" },
       hostInvoke(host, agents, updates[host.serverId], contracts));
   }
-  if (uninstalled) setupUninstalledHost(contracts);
+  if (uninstalled) {
+    setupUninstalledHost(contracts);
+    // This page's installation remembers the offline host from three days ago, on the version before the newest.
+    globalThis.__previewHostMemory = [{ serverId: "old", label: "OLD-DEMO-PC", version: "2.18.0-dev.10", revision: updates.mac.revision,
+      seenAt: new Date(Date.now() - 3 * 86_400_000 - 3_600_000).toISOString() }];
+  }
 }
 
 function setupUninstalledHost(contracts) {
   const host = { serverId: "build", label: "BUILD-DEMO" }, latest = previewUpdateState("fleet");
   Object.assign(latest, { version: "2.18.0-dev.11", revision: "8e1f2c3d4b5a69788796a5b4c3d2e1f00a1b2c3d" });
+  const situation = new URLSearchParams(location.search).get("hostsCase");
   let installed = false;
   globalThis.__previewTerminals = [];
+  globalThis.__previewConfigReads = [];
   globalThis.__fleetPreviewClients.build = { ...fixturePaseo,
     agents: { ...fixturePaseo.agents, list: async () => ({ entries: [], pageInfo: { nextCursor: null, hasMore: false } }) },
-    // The panel must never read a host's daemon config (it carries provider credentials).
-    config: { get: async () => { throw new Error("The device must not read a daemon config"); } },
+    // Like a daemon config, it carries provider settings next to the plugin entries; the panel keeps only the plugin flags.
+    config: { get: async () => {
+      globalThis.__previewConfigReads.push(host.serverId);
+      const entry = installed || ["disabled", "too-old", "plugins-off"].includes(situation)
+        ? { "agent-observatory": { source: "directory", path: "C:\\Users\\demo\\.paseo\\plugins\\agent-observatory", ...(situation === "disabled" && !installed ? { enabled: false } : {}) } } : {};
+      return { requestId: "fixture-config", config: { pluginsEnabled: situation !== "plugins-off", providers: { claude: { env: { ANTHROPIC_API_KEY: "demo-not-a-key" } } }, plugins: entry } };
+    } },
     workspaces: { list: async () => ({ requestId: "fixture-workspaces", entries: [{ id: "ws-build", projectRootPath: "C:\\Users\\demo\\repo", workspaceDirectory: "C:\\Users\\demo\\repo", archivingAt: null }],
       pageInfo: { nextCursor: null, prevCursor: null } }) },
     terminals: { create: async options => {
       const record = { host: host.serverId, options, polls: 0, killed: false };
       globalThis.__previewTerminals.push(record);
-      const failure = new URLSearchParams(location.search).get("hostsCase") === "no-cli";
+      const failure = situation === "no-cli";
       return { id: `term-build-${globalThis.__previewTerminals.length}`, kill: async () => { record.killed = true; }, capture: async () => {
         record.polls += 1;
         if (failure) return { terminalId: "term-build", totalLines: 1, lines: ["'paseo' is not recognized as an internal or external command,", "__OBSERVATORY_HOST_COMMAND__ no-cli"] };
