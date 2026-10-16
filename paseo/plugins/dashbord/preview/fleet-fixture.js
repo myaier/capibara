@@ -1,7 +1,7 @@
 import { listHostAgents } from "../shared/fleet-rpc";
 import { getProviderBases } from "../shared/provider-bases";
 import { hostRegistry } from "../client/host-registry";
-import { fixtureRpc, fixturePaseo } from "./sdk-adapter";
+import { fixtureRpc, fixturePaseo, previewUpdateRpc, previewUpdateState } from "./sdk-adapter";
 import { rawAgents } from "./fixtures";
 import { buildStatsSnapshot } from "../server/stats-snapshot";
 import { emptyStatsMetrics } from "../shared/stats";
@@ -16,24 +16,72 @@ import * as receipts from "../shared/read-state";
 import * as quota from "../shared/quota";
 import * as schedules from "../shared/schedules";
 
-export function setupFleetFixture() {
+/**
+ * Two installed machines; with `uninstalled`, a third connected host has no observatory, and its terminal installs one: the
+ * command reports success on the second read, then that host registers at the newest revision (`hostsCase=no-cli` fails instead).
+ */
+export function setupFleetFixture({ uninstalled = false } = {}) {
   const contracts = Object.values({ listHostAgents, getProviderBases, ...stats, ...tokens, ...telemetry, ...analytics, ...background, ...attention, ...receipts, ...quota, ...schedules }).filter(value => value?.name && value?.output);
-  globalThis.__fleetPreviewHosts = [{ serverId: "mac", label: "MacBook Pro", status: "online" }, { serverId: "win", label: "WIN-DEMO-PC", status: "online" }];
+  globalThis.__fleetPreviewHosts = [{ serverId: "mac", label: "MacBook Pro", status: "online" }, { serverId: "win", label: "WIN-DEMO-PC", status: "online" },
+    ...(uninstalled ? [{ serverId: "build", label: "BUILD-DEMO", status: "online" }] : [])];
   globalThis.__fleetPreviewClients = {};
   globalThis.__previewFleetCalls = [];
+  globalThis.__previewPageHost = "mac";
   globalThis.__previewFleetHostStatus = (id, status) => { globalThis.__fleetPreviewHosts = globalThis.__fleetPreviewHosts.map(host => host.serverId === id ? { ...host, status } : host); globalThis.dispatchEvent(new Event("fleet-hosts")); };
-  for (const host of globalThis.__fleetPreviewHosts) {
+  // Each installation has its own update service; this page's (mac) is also the one the native useRpc stand-in answers.
+  const updates = { mac: globalThis.__previewUpdate = previewUpdateState(uninstalled ? "update-available" : "fleet") };
+  updates.win = structuredClone(updates.mac);
+  for (const host of globalThis.__fleetPreviewHosts.filter(host => host.serverId !== "build")) {
     const agents = structuredClone(rawAgents.filter(agent => !agent.archivedAt && !agent.parentAgentId).slice(0, host.serverId === "mac" ? 3 : 2));
     for (const [i, agent] of agents.entries()) { agent.title = `${host.serverId === "mac" ? "Mac" : "Windows"} 会话 ${i + 1}`; agent.model = host.serverId === "mac" ? "mac-model" : "win-model"; agent.provider = host.serverId === "mac" ? "codex" : "claude"; agent.createdAt = new Date().toISOString(); }
-    const ids = new Set(agents.map(agent => agent.id)), chunks = new Map();
     globalThis.__fleetPreviewClients[host.serverId] = { ...fixturePaseo, agents: { ...fixturePaseo.agents,
       list: async () => { throw new Error("Native directory transport unavailable in the fleet fixture"); },
       ref: id => ({ ...fixturePaseo.agents.ref(id), refresh: async () => ({ agent: agents.find(agent => agent.id === id), project: null }),
         archive: async () => { globalThis.__previewFleetCalls.push({ host: host.serverId, method: "archive", id }); agents.find(agent => agent.id === id).archivedAt = new Date().toISOString(); },
       }),
     } };
-    const invoke = async (contract, input) => {
+    hostRegistry.register({ serverId: host.serverId, hostname: host.label, protocol: 1, version: HOST_DATA_VERSION, capabilities: ["fleet-read-v1", "fleet-directory-v1"], now: new Date().toISOString(), nonce: "" },
+      hostInvoke(host, agents, updates[host.serverId], contracts));
+  }
+  if (uninstalled) setupUninstalledHost(contracts);
+}
+
+function setupUninstalledHost(contracts) {
+  const host = { serverId: "build", label: "BUILD-DEMO" }, latest = previewUpdateState("fleet");
+  Object.assign(latest, { version: "2.18.0-dev.11", revision: "8e1f2c3d4b5a69788796a5b4c3d2e1f00a1b2c3d" });
+  let installed = false;
+  globalThis.__previewTerminals = [];
+  globalThis.__fleetPreviewClients.build = { ...fixturePaseo,
+    agents: { ...fixturePaseo.agents, list: async () => ({ entries: [], pageInfo: { nextCursor: null, hasMore: false } }) },
+    // The panel must never read a host's daemon config (it carries provider credentials).
+    config: { get: async () => { throw new Error("The device must not read a daemon config"); } },
+    workspaces: { list: async () => ({ requestId: "fixture-workspaces", entries: [{ id: "ws-build", projectRootPath: "C:\\Users\\demo\\repo", workspaceDirectory: "C:\\Users\\demo\\repo", archivingAt: null }],
+      pageInfo: { nextCursor: null, prevCursor: null } }) },
+    terminals: { create: async options => {
+      const record = { host: host.serverId, options, polls: 0, killed: false };
+      globalThis.__previewTerminals.push(record);
+      const failure = new URLSearchParams(location.search).get("hostsCase") === "no-cli";
+      return { id: `term-build-${globalThis.__previewTerminals.length}`, kill: async () => { record.killed = true; }, capture: async () => {
+        record.polls += 1;
+        if (failure) return { terminalId: "term-build", totalLines: 1, lines: ["'paseo' is not recognized as an internal or external command,", "__OBSERVATORY_HOST_COMMAND__ no-cli"] };
+        if (record.polls < 2) return { terminalId: "term-build", totalLines: 1, lines: ["Cloning https://github.com/myaier/capibara.git"] };
+        if (!installed) {
+          installed = true;
+          // The host's daemon starts the new installation, which registers with this client a moment later.
+          setTimeout(() => hostRegistry.register({ serverId: host.serverId, hostname: host.label, protocol: 1, version: latest.version, capabilities: ["fleet-read-v1", "fleet-directory-v1"], now: new Date().toISOString(), nonce: "" },
+            hostInvoke(host, [], latest, contracts)), 400);
+        }
+        return { terminalId: "term-build", totalLines: 3, lines: ["Cloning https://github.com/myaier/capibara.git", "Installed agent-observatory", "__OBSERVATORY_HOST_COMMAND__ ok"] };
+      } };
+    } },
+  };
+}
+
+function hostInvoke(host, agents, update, contracts) {
+  const ids = new Set(agents.map(agent => agent.id)), chunks = new Map();
+  const invoke = async (contract, input) => {
       globalThis.__previewFleetCalls.push({ host: host.serverId, method: contract.name, input });
+      if (contract.name.startsWith("observatory.update.")) return previewUpdateRpc(update, contract, input, { host: host.serverId });
       if (contract.name === "observatory.fleet.part") return { snapshotId: input.snapshotId, index: input.index, parts: chunks.get(input.snapshotId).length, json: chunks.get(input.snapshotId)[input.index] };
       if (contract.name === "observatory.fleet.read") {
         const target = contracts.find(contract => contract.name === input.method); if (!target) throw new Error(input.method);
@@ -55,7 +103,6 @@ export function setupFleetFixture() {
       if (result.receipts) result.receipts = result.receipts.filter(receipt => ids.has(receipt.agentId));
       if (contract.name === "observatory.tokens.get") result.fleetDetails = { speedBins: [], filtered: false, sessionDetailLimited: false, dedupeKeys: [] };
       return result;
-    };
-    hostRegistry.register({ serverId: host.serverId, hostname: host.label, protocol: 1, version: HOST_DATA_VERSION, capabilities: ["fleet-read-v1", "fleet-directory-v1"], now: new Date().toISOString(), nonce: "" }, invoke);
-  }
+  };
+  return invoke;
 }

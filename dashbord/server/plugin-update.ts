@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { applyUpdate, changelogSince, dismissUpdate, getUpdate, OBSERVATORY_PLUGIN_ID, OBSERVATORY_VERSION, type UpdateState } from "../shared/plugin-update";
+import { applyUpdate, changelogSince, dismissUpdate, formatPluginSource, getUpdate, OBSERVATORY_PLUGIN_ID, OBSERVATORY_VERSION, type UpdateState } from "../shared/plugin-update";
 import { t } from "../shared/text";
 import type { ProviderBridge } from "./provider-subagents";
 import { telemetryDirectory } from "./telemetry";
@@ -35,6 +35,8 @@ export class PluginUpdates {
   private error: string | null = null;
   private updating: UpdateState["updating"] = null;
   private dismissed: string | null = null;
+  /** Where this installation comes from, so another host can install the same source. */
+  private source: NonNullable<UpdateState["source"]> | null = null;
   /** The update this installation last started. The process it restarts into reports it once the new revision runs. */
   private applied: { commit: string; from: string; startedAt: string } | null = null;
   private loaded: Promise<void>;
@@ -91,7 +93,8 @@ export class PluginUpdates {
       dismissed: !!this.available && this.available.commit === this.dismissed, checking: !!this.checking,
       checkedAt: this.checkedAt ? new Date(this.checkedAt).toISOString() : null, error: this.error, updating: this.updating,
       justUpdated: !this.updating && this.applied && this.revision === this.applied.commit && this.now() - Date.parse(this.applied.startedAt) < JUST_UPDATED_MS
-        ? { from: this.applied.from, to: OBSERVATORY_VERSION, commit: this.applied.commit, startedAt: this.applied.startedAt } : null };
+        ? { from: this.applied.from, to: OBSERVATORY_VERSION, commit: this.applied.commit, startedAt: this.applied.startedAt } : null,
+      source: this.source };
   }
   private async preview(): Promise<Preview> {
     const payload = await this.bridge.request({ type: "plugin.source.update.preview.request", pluginId: OBSERVATORY_PLUGIN_ID }, "plugin.source.update.preview.response", 60_000);
@@ -104,6 +107,9 @@ export class PluginUpdates {
     try {
       const preview = await this.preview();
       this.revision = preview.current?.currentRevision ?? null;
+      const reference = formatPluginSource(preview.current?.identity);
+      if (!reference) this.source = null;
+      else if (this.source?.reference !== reference) this.source = { reference, ref: await this.trackedRef() };
       const commit = preview.target?.kind === "git" ? preview.target.commit : undefined;
       if (preview.outcome !== "update" || !commit) this.available = null;
       // Notes that could not be read (offline, credentials) are retried at the next check.
@@ -115,6 +121,14 @@ export class PluginUpdates {
       this.error = null;
     } catch (error) { this.error = message(error); }
     this.checkedAt = this.now();
+  }
+  /** The branch or tag the installation follows; null for the source's default branch or when the daemon cannot say. */
+  private async trackedRef(): Promise<string | null> {
+    try {
+      const payload = await this.bridge.request({ type: "plugin.source.status.request", pluginId: OBSERVATORY_PLUGIN_ID }, "plugin.source.status.response", 30_000);
+      const status = record((payload.plugins as unknown[] | undefined)?.find(item => record(item).id === OBSERVATORY_PLUGIN_ID));
+      return typeof status.ref === "string" && status.ref.trim() ? status.ref.trim() : null;
+    } catch { return null; }
   }
   /** Fetches only the target commit into a bare repository of its own; the installed checkout is never touched. */
   private async changelog(remote: string, pluginPath: string, commit: string) {

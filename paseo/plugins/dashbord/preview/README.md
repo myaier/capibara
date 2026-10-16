@@ -10,6 +10,7 @@ Query parameters:
 
 - `theme=light` (default is dark)
 - `scenario=empty`, `error`, `retained-error`, `loading`, `stale`, `truncated`, or `read-error` (a completion acknowledgement fails without changing native attention state); detail edge cases: `navigation-error`, `long-history`, `unknown-origin`
+- `scenario=fleet` renders two fictional installed machines through the fleet client; `scenario=fleet-hosts` adds a third connected host without the observatory (BUILD-DEMO), whose terminal install succeeds and registers it, or fails with `&hostsCase=no-cli`
 - `archives=1` opens the independent archived-session page; normal overview always excludes archived records, including in all-time mode. Header/footer archive navigation switches between these same views.
 
 Fixtures model a managed `payments-v2` worktree on `feature/payments-v2`, normal main checkouts, a renamed project whose workspace title is different, and older execution archived more recently. These are synthetic records that exercise the distinction between execution time, archive metadata, project names and worktree names.

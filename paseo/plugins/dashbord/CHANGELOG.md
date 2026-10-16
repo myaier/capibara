@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.20.0-dev.1 · Capibara · 2026-10-16
+
+- The version chip at the top right becomes **Hosts**. Its panel lists every host Paseo is connected to with this plugin's state there: up to date, update available, updating, failed, offline, or no observatory running. The chip shows the version while every host is fine and what needs you otherwise; phones show it only then, and the ⋯ menu always offers **Hosts**.
+- **Update all** brings every installed host to the revision this page's installation offers, through each host's own reviewed update: other hosts first, this page's last. A host whose source offers a different revision is left alone and says so. **Not now** postpones the prompt as before.
+- **Install** (or **Sync all**, which also updates) puts the observatory on a connected host where none runs. After you confirm the commands shown, it opens a terminal in one of that host's workspaces and runs `paseo plugin add` with this installation's own source; where the plugin is already configured there, it enables and updates it in place instead, keeping that host's source. Windows hosts run it through cmd.exe, others through /bin/sh. A failure keeps the terminal open and shows its last lines and the commands to run by hand.
+- The device never reads a host's daemon config. A host can be ignored so it no longer prompts.
+
 ## 2.19.0-dev.8 · Capibara · 2026-10-16
 
 - Fix tapping Agent Observatory, Archived sessions or Scheduled runs on phones appearing to do nothing. Use Paseo's sidebar navigation callback so the mobile drawer closes and reveals the destination.

@@ -160,15 +160,38 @@ export function useWorkspace() { outsidePanel(); }
 export function useAgent() { outsidePanel(); }
 /** The host's link opener (Paseo 0.11 `openExternalUrl`): the preview records the URL instead of leaving the page. */
 export async function openExternalUrl(url) { globalThis.__previewExternal = url; }
-function previewUpdateState(scenario) {
+export function previewUpdateState(scenario) {
   const base = { version: "2.18.0-dev.10", revision: "75c0c6a4aaf70362226fe31664d800c89be0df3b", available: null, dismissed: false, checking: false,
-    checkedAt: new Date().toISOString(), error: null, updating: null, justUpdated: null };
+    checkedAt: new Date().toISOString(), error: null, updating: null, justUpdated: null,
+    source: { reference: "git:https://github.com/myaier/capibara.git:dashbord", ref: null } };
   // The panel reloaded during an update: the restarted server reports which update it finished.
   if (scenario === "update-just-done") return { ...base, justUpdated: { from: "2.18.0-dev.9", to: base.version, commit: base.revision, startedAt: new Date().toISOString() } };
   if (scenario !== "update-available" && scenario !== "update-fails") return scenario === "update-docs-only"
     ? { ...base, available: { commit: "8e1f2c3d4b5a69788796a5b4c3d2e1f00a1b2c3d", version: base.version, truncated: false, entries: [] } } : base;
   return { ...base, available: { commit: "8e1f2c3d4b5a69788796a5b4c3d2e1f00a1b2c3d", version: "2.18.0-dev.11", truncated: false, entries: [
     { version: "2.18.0-dev.11", heading: "2.18.0-dev.11 · Capibara · 2026-10-16", body: "- 时间线支持按工具筛选。\n- 修复长回复的 **Markdown** 表格溢出。" }] } };
+}
+/**
+ * One installation's update service, like server/plugin-update.ts: the apply answers at once, the plugin then restarts (its reads
+ * fail for a moment) and the new revision answers with the update it finished.
+ */
+export function previewUpdateRpc(update, contract, input, { fail = false, host = "fixture-host" } = {}) {
+  if (update.restartingUntil && Date.now() < update.restartingUntil) throw new Error("Plugin is restarting");
+  if (contract.name === "observatory.update.dismiss") update.dismissed = true;
+  if (contract.name === "observatory.update.apply") {
+    globalThis.__previewAgentOperations.push({ type: "plugin-update", commit: input.commit });
+    (globalThis.__previewUpdateApplies ??= []).push({ host, commit: input.commit });
+    if (fail) update.updating = { commit: input.commit, startedAt: new Date().toISOString(), error: "模拟构建失败" };
+    else {
+      const from = update.version, to = update.available?.version ?? update.version;
+      update.updating = { commit: input.commit, startedAt: new Date().toISOString(), error: null };
+      setTimeout(() => { update.restartingUntil = Date.now() + 2500; }, 2500);
+      setTimeout(() => Object.assign(update, { version: to, revision: input.commit, available: null, dismissed: false, updating: null, restartingUntil: 0,
+        justUpdated: { from, to, commit: input.commit, startedAt: new Date().toISOString() } }), 5000);
+    }
+  }
+  const { restartingUntil: _restarting, ...state } = update;
+  return state;
 }
 export function useRpc(contract) { return useMemo(() => input => fixtureRpc(contract, input), [contract.name]); }
 export const fixturePaseo = sdk;
@@ -179,18 +202,7 @@ export async function fixtureRpc(contract, input) {
       // Like server/plugin-update.ts: the apply answers at once, then the new revision answers after the restart.
       case "observatory.update.get": case "observatory.update.dismiss": case "observatory.update.apply": {
         const update = globalThis.__previewUpdate ??= previewUpdateState(scenarioName());
-        // Like the plugin restarting into the new revision: its reads fail for a moment.
-        if (update.restartingUntil && Date.now() < update.restartingUntil) throw new Error("Plugin is restarting");
-        if (contract.name === "observatory.update.dismiss") update.dismissed = true;
-        if (contract.name === "observatory.update.apply") {
-          globalThis.__previewAgentOperations.push({ type: "plugin-update", commit: input.commit });
-          if (scenarioName() === "update-fails") update.updating = { commit: input.commit, startedAt: new Date().toISOString(), error: "模拟构建失败" };
-          else { update.updating = { commit: input.commit, startedAt: new Date().toISOString(), error: null };
-            setTimeout(() => { update.restartingUntil = Date.now() + 2500; }, 2500);
-            setTimeout(() => Object.assign(update, { version: "2.18.0-dev.11", revision: input.commit, available: null, dismissed: false, updating: null, restartingUntil: 0,
-              justUpdated: { from: "2.18.0-dev.10", to: "2.18.0-dev.11", commit: input.commit, startedAt: new Date().toISOString() } }), 5000); }
-        }
-        result = { ...update }; break;
+        result = previewUpdateRpc(update, contract, input, { fail: scenarioName() === "update-fails", host: globalThis.__previewPageHost ?? "fixture-host" }); break;
       }
       case "observatory.sessions.name": result = { queued: 0, handledIds: input.agentIds }; break;
       case "observatory.sessions.rename": {
