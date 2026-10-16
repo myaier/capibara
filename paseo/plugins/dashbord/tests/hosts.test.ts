@@ -55,6 +55,10 @@ test("an installed host is current, outdated with its own update, or diverged; u
   assert.equal(hostRow(fact({ update: { state: update({ revision: next }), error: null } }), target).state, "current");
   assert.deepEqual(pick(hostRow(fact({ update: { state: update({ available: offered() }), error: null } }), target)), ["outdated", "update"]);
   assert.equal(hostRow(fact({ update: { state: update({ available: offered(other) }), error: null } }), target).state, "diverged");
+  // An answer from before the target was set, or a check still running, is not called diverged.
+  assert.equal(hostRow(fact({ stale: true, update: { state: update({ available: offered(other) }), error: null } }), target).state, "checking");
+  assert.equal(hostRow(fact({ update: { state: update({ available: offered(other), checking: true }), error: null } }), target).state, "checking");
+  assert.equal(hostRow(fact({ stale: true, update: { state: update({ available: offered() }), error: null } }), target).state, "outdated");
   assert.equal(hostRow(fact({ update: { state: null, error: null } }), target).state, "checking");
   assert.deepEqual(pick(hostRow(fact({ update: { state: update({ error: "network" }), error: null } }), target)), ["check-failed", null]);
   assert.deepEqual(pick(hostRow(fact({ update: { state: null, error: "timeout" } }), target)), ["check-failed", null]);
@@ -69,6 +73,10 @@ test("an installed host is current, outdated with its own update, or diverged; u
   assert.deepEqual([gone.state, gone.phase, gone.updatingSince], ["updating", "restarting", 9]);
   const failed = hostRow(fact({ update: { state: update({ available: offered(), updating: { commit: next, startedAt: started, error: "build failed" } }), error: null } }), target);
   assert.deepEqual([failed.state, failed.action, failed.error], ["update-failed", "retry-update", "build failed"]);
+  // The page's own update waiting for commands on other hosts.
+  const queued = hostRow(fact({ page: true, pending: { commit: next, startedAt: 9, queued: true }, update: { state: update({ available: offered() }), error: null } }), target);
+  assert.deepEqual([queued.state, queued.action], ["queued", null]);
+  assert.equal(hostSummary([queued]).busy, 1);
 });
 
 test("a host without a running installation is not installed, disabled, too old, or has plugins turned off, as its config says", () => {
@@ -188,12 +196,12 @@ test("the terminal invocation picks the shell from the workspace path, runs the 
   assert.equal(hostPlatform("/Users/<name>/project"), "posix");
   const windows = terminalInvocation("windows", hostCommand("install", source)!);
   assert.equal(windows.command, "cmd.exe");
-  assert.deepEqual(windows.args.slice(0, 3), ["/d", "/s", "/c"]);
+  assert.deepEqual(windows.args.slice(0, 3), ["/d", "/s", "/k"]);
   assert.equal(windows.args[3], "where paseo >nul 2>nul && ((call paseo plugin add git:https://github.com/myaier/capibara.git:dashbord) && echo __OBSERVATORY_HOST_COMMAND__ ok || echo __OBSERVATORY_HOST_COMMAND__ failed) || echo __OBSERVATORY_HOST_COMMAND__ no-cli");
   assert.match(terminalInvocation("windows", hostCommand("upgrade", null)!).args[3]!, /\(\(call paseo plugin update agent-observatory --yes && call paseo plugin reload agent-observatory\) && echo/);
   const posix = terminalInvocation("posix", hostCommand("upgrade", null)!);
   assert.equal(posix.command, "/bin/sh"); assert.equal(posix.args[0], "-c");
-  assert.match(posix.args[1]!, /if "\$P" plugin update agent-observatory --yes && "\$P" plugin reload agent-observatory; then R=ok; else R=failed; fi; echo "__OBSERVATORY_HOST_COMMAND__ \$R"$/);
+  assert.match(posix.args[1]!, /if "\$P" plugin update agent-observatory --yes && "\$P" plugin reload agent-observatory; then R=ok; else R=failed; fi; fi; echo "__OBSERVATORY_HOST_COMMAND__ \$R"; exec "\$\{SHELL:-\/bin\/sh\}" -il$/);
   assert.equal(commandResult(["+ paseo plugin add", "Installed", "__OBSERVATORY_HOST_COMMAND__ ok", ""]), "ok");
   assert.equal(commandResult(["  __OBSERVATORY_HOST_COMMAND__ no-cli  "]), "no-cli");
   assert.equal(commandResult(["Cloning", "__OBSERVATORY_HOST_COMMAND__ okay"]), null);
@@ -211,8 +219,9 @@ test("the POSIX invocation runs each step with the CLI on PATH and fails as soon
       await writeFile(join(directory, "paseo"), `#!/bin/sh\necho "$*" >> "${directory}/calls"\ncase "$2" in ${Object.entries(codes).map(([name, code]) => `${name}) exit ${code};;`).join(" ")} esac\n`);
       await chmod(join(directory, "paseo"), 0o755);
       const invocation = terminalInvocation("posix", steps);
-      const output = await new Promise<string[]>((resolve, reject) => execFile(invocation.command, invocation.args, { env: { PATH: `${directory}:/usr/bin:/bin`, HOME: directory } },
-        (error, stdout) => error && !stdout ? reject(error) : resolve(stdout.split("\n"))));
+      // The shell stays open after the outcome line; stdin at end of file lets it exit here.
+      const output = await new Promise<string[]>((resolve, reject) => execFile(invocation.command, invocation.args, { env: { PATH: `${directory}:/usr/bin:/bin`, HOME: directory, SHELL: "/bin/sh" } },
+        (error, stdout) => error && !stdout ? reject(error) : resolve(stdout.split("\n"))).stdin?.end());
       return { result: commandResult(output), calls: (await readFile(join(directory, "calls"), "utf8")).trim().split("\n") };
     };
     assert.deepEqual(await run(hostCommand("install", source)!, { add: 0 }), { result: "ok", calls: ["plugin add git:https://github.com/myaier/capibara.git:dashbord"] });

@@ -46,6 +46,13 @@ export function setupFleetFixture({ uninstalled = false } = {}) {
       hostInvoke(host, agents, updates[host.serverId], contracts));
   }
   if (uninstalled) {
+    // Like a client that knows Windows only by its pairing offer: Paseo labels it with the server ID, the installation knows its name.
+    globalThis.__fleetPreviewHosts = globalThis.__fleetPreviewHosts.map(host => host.serverId === "win" ? { ...host, label: "win" } : host);
+    // Windows last checked its source two hours ago, before the newest revision: only a fresh check offers it.
+    const fresh = updates.win.available;
+    Object.assign(updates.win, { checkedAt: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+      available: { ...fresh, commit: "0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d", version: "2.18.0-dev.10" },
+      onRefresh: state => Object.assign(state, { available: fresh, checkedAt: new Date().toISOString() }) });
     setupUninstalledHost(contracts);
     // This page's installation remembers the offline host from three days ago, on the version before the newest.
     globalThis.__previewHostMemory = [{ serverId: "old", label: "OLD-DEMO-PC", version: "2.18.0-dev.10", revision: updates.mac.revision,
@@ -75,7 +82,7 @@ function setupUninstalledHost(contracts) {
       const record = { host: host.serverId, options, polls: 0, killed: false };
       globalThis.__previewTerminals.push(record);
       const failure = situation === "no-cli";
-      return { id: `term-build-${globalThis.__previewTerminals.length}`, kill: async () => { record.killed = true; }, capture: async () => {
+      return { id: `term-build-${globalThis.__previewTerminals.length}`, kill: async () => { record.killed = true; }, refresh: async () => record.killed ? null : { id: "term-build" }, capture: async () => {
         record.polls += 1;
         if (failure) return { terminalId: "term-build", totalLines: 1, lines: ["'paseo' is not recognized as an internal or external command,", "__OBSERVATORY_HOST_COMMAND__ no-cli"] };
         if (record.polls < 2) return { terminalId: "term-build", totalLines: 1, lines: ["Cloning https://github.com/myaier/capibara.git"] };

@@ -177,6 +177,8 @@ export function previewUpdateState(scenario) {
  */
 export function previewUpdateRpc(update, contract, input, { fail = false, host = "fixture-host" } = {}) {
   if (update.restartingUntil && Date.now() < update.restartingUntil) throw new Error("Plugin is restarting");
+  // A host's own check of its source: a fixture may answer it with a newer offer.
+  if (contract.name === "observatory.update.get" && input.refresh && update.onRefresh) { update.onRefresh(update); delete update.onRefresh; }
   if (contract.name === "observatory.update.dismiss") update.dismissed = true;
   if (contract.name === "observatory.update.apply") {
     globalThis.__previewAgentOperations.push({ type: "plugin-update", commit: input.commit });

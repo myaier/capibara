@@ -179,8 +179,11 @@ test("hosts: every connected host is listed with its state; 全部同步 install
   const dialog = page.getByRole("dialog", { name: "主机", exact: true });
   const mac = dialog.getByTestId("host-row-mac"), win = dialog.getByTestId("host-row-win"), build = dialog.getByTestId("host-row-build"), old = dialog.getByTestId("host-row-old");
   await expect(mac).toContainText("MacBook Pro"); await expect(mac).toContainText("当前页面"); await expect(mac).toContainText("v2.18.0-dev.10 · 可更新");
+  // Known to this client only by its server ID, Windows is shown with its own host name; its stale answer was checked again.
+  await expect(win).toContainText("WIN-DEMO-PC");
   await expect(win).toContainText("v2.18.0-dev.10 · 可更新");
   await expect(win.getByRole("button", { name: "更新", exact: true })).toBeVisible();
+  expect(await page.evaluate(() => (globalThis as any).__previewFleetCalls.some((call: any) => call.host === "win" && call.method === "observatory.update.get" && call.input.refresh === true))).toBeTruthy();
   await expect(build).toContainText("未安装");
   await expect(build.getByRole("button", { name: "安装", exact: true })).toBeVisible();
   await expect(old).toContainText("v2.18.0-dev.10 · 离线（3 天前） · 待同步");
@@ -198,10 +201,13 @@ test("hosts: every connected host is listed with its state; 全部同步 install
   expect(await page.evaluate(() => (globalThis as any).__previewTerminals.length)).toBe(0);
   expect(await page.evaluate(() => (globalThis as any).__previewUpdateApplies ?? [])).toEqual([]);
   await dialog.getByRole("button", { name: "确认执行", exact: true }).click();
+  // This page updates only after the command on BUILD-DEMO finished, so its restart cannot cut that command's follow-up.
+  await expect(mac).toContainText("等其他主机处理完再更新");
+  expect(await page.evaluate(() => (globalThis as any).__previewUpdateApplies?.map((apply: { host: string }) => apply.host))).toEqual(["win"]);
   await expect.poll(() => page.evaluate(() => (globalThis as any).__previewUpdateApplies?.map((apply: { host: string }) => apply.host))).toEqual(["win", "mac"]);
   const terminal = await page.evaluate(() => (globalThis as any).__previewTerminals[0].options);
   expect(terminal.workspaceId).toBe("ws-build"); expect(terminal.command).toBe("cmd.exe");
-  expect(terminal.args.slice(0, 3)).toEqual(["/d", "/s", "/c"]);
+  expect(terminal.args.slice(0, 3)).toEqual(["/d", "/s", "/k"]);
   expect(terminal.args[3]).toContain("((call paseo plugin add git:https://github.com/myaier/capibara.git:dashbord) && echo __OBSERVATORY_HOST_COMMAND__ ok");
   await expect(toast(page, "已在 BUILD-DEMO 上安装观测台")).toBeVisible({ timeout: 10_000 });
   await expect(build).toContainText("v2.18.0-dev.11 · 最新", { timeout: 10_000 });
