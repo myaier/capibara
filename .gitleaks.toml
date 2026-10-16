@@ -1,0 +1,21 @@
+# Default gitleaks rules plus allowances for known false positives only. Keep each allowance narrow.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known non-secrets"
+regexTarget = "match"
+paths = [
+  # SHA-256 digests of the published files.
+  '''^dashbord/release\.json$''',
+  # Fixture of fictional credentials that the redaction tests must scrub.
+  '''^paseo/plugins/dashbord/tests/redaction\.test\.ts$''',
+]
+regexes = [
+  # Global key name of the language catalog cache.
+  '''__paseoI18nCatalogsV1''',
+  # Fictional fixtures in redaction and persistence tests (jwt.io sample token, counting digits).
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkRlbW8ifQ''',
+  '''0123456789abcdef''',
+  '''abc123def456''',
+]
