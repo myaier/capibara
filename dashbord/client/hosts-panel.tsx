@@ -26,7 +26,8 @@ const REMEMBER_MS = 10 * 60_000;
 // Module scope, not component state: closing the dialog or the panel keeps following updates it started.
 type Pending = { commit: string; startedAt: number; label: string; queued?: boolean };
 const pendingUpdates = createStore<ReadonlyMap<string, Pending>>(new Map());
-const onlineSince = new Map<string, number>();
+/** Since when each online host has had no registered installation; hosts with one, or offline, have no entry. */
+const waitingSince = new Map<string, number>();
 const announced = new Set<string>();
 
 /**
@@ -88,16 +89,17 @@ export function useHostsPanel({ pageHostId, pageHostLabel, ignored, onIgnoredCha
     refetchOnWindowFocus: false, refetchInterval: foreground ? 60_000 : false as const,
   })) });
 
-  // A host that just connected may still be starting its installation; give it time before calling it not running.
+  // A host that just connected may still be starting its installation; give it time before calling it not running. So may one whose
+  // installation just left the registry: an update or reload started elsewhere restarts it.
   const onlineKey = hosts.map(host => `${host.serverId}:${host.status}:${isRegistered(host.serverId)}`).join("|");
   useEffect(() => {
     const now = Date.now();
     for (const host of hosts) {
-      if (host.status !== "online") onlineSince.delete(host.serverId);
-      else if (!onlineSince.has(host.serverId)) onlineSince.set(host.serverId, now);
+      if (host.status !== "online" || isRegistered(host.serverId)) waitingSince.delete(host.serverId);
+      else if (!waitingSince.has(host.serverId)) waitingSince.set(host.serverId, now);
     }
     const waits = hosts.filter(host => host.status === "online" && !isRegistered(host.serverId))
-      .map(host => onlineSince.get(host.serverId)! + SETTLE_MS - now).filter(wait => wait > 0);
+      .map(host => waitingSince.get(host.serverId)! + SETTLE_MS - now).filter(wait => wait > 0);
     setTick(value => value + 1);
     if (!waits.length) return;
     const timer = setTimeout(() => setTick(value => value + 1), Math.min(...waits) + 50);
@@ -108,7 +110,7 @@ export function useHostsPanel({ pageHostId, pageHostLabel, ignored, onIgnoredCha
   // Another host's answer counts only once it checked its source after this page did (see refresh below).
   const pageCheckedAt = Date.parse(updates[updateIds.indexOf(pageHostId)]?.data?.checkedAt ?? "") || 0;
   const facts: HostFacts[] = hosts.map(host => {
-    const update = updates[updateIds.indexOf(host.serverId)], config = configs[configIds.indexOf(host.serverId)], since = onlineSince.get(host.serverId);
+    const update = updates[updateIds.indexOf(host.serverId)], config = configs[configIds.indexOf(host.serverId)], since = waitingSince.get(host.serverId);
     return { host, page: host.serverId === pageHostId,
       registered: registered.has(host.serverId) ? { version: registered.get(host.serverId)! } : host.serverId === pageHostId ? { version: OBSERVATORY_VERSION } : null,
       update: { state: update?.data ?? null, error: update?.error ? message(update.error) : null },

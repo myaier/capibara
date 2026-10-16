@@ -261,6 +261,21 @@ test("hosts: an installed observatory that never starts is offered an upgrade on
   await expect(toast(page, "BUILD-DEMO 上的观测台已升级")).toBeVisible({ timeout: 10_000 });
 });
 
+test("hosts: an installation restarted from elsewhere is given time to come back instead of being offered an upgrade", async ({ page }, testInfo) => {
+  await open(page, testInfo, "fleet-hosts");
+  await page.getByTestId("hosts-chip").click();
+  const win = page.getByRole("dialog", { name: "主机", exact: true }).getByTestId("host-row-win");
+  await expect(win).toContainText("v2.18.0-dev.10 · 可更新");
+  // Online for longer than a host that just connected is given, so only its restart can explain the wait.
+  await page.waitForTimeout(10_500);
+  await page.evaluate(() => (globalThis as any).__previewRestartHost("win", 3_000));
+  await expect(win).toContainText("正在检查…");
+  const seen = new Set<string>();
+  await expect.poll(async () => { const text = (await win.innerText()).replace(/\s+/g, " "); seen.add(text); return text; }, { timeout: 15_000, intervals: [100] })
+    .toContain("v2.18.0-dev.10 · 可更新");
+  expect([...seen].filter(text => /版本过旧|升级/.test(text))).toEqual([]);
+});
+
 test("hosts: a host with plugins turned off says so and offers no command", async ({ page }, testInfo) => {
   await open(page, testInfo, "fleet-hosts&hostsCase=plugins-off");
   await page.getByTestId("hosts-chip").click();

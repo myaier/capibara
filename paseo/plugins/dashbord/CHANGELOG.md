@@ -8,6 +8,7 @@ Fixes from the Hosts panel's first run on two real machines:
 - **Sync all** updates this page's own host only after commands on other hosts have finished. Its restart reloads the panel, which would have dropped their follow-up and left their terminals open; meanwhile the row says it is waiting.
 - A host whose last update check predates this page's is asked to check again instead of being shown as having a different source or target.
 - A host this client knows only by its server ID is shown with its own host name.
+- A host whose installation restarts from elsewhere (an update or reload not started in this panel) is given the same time to come back as a host that just connected, instead of flashing "too old or failing to start" with **Upgrade**.
 
 ## 2.20.0-dev.2 · Capibara · 2026-10-17
 

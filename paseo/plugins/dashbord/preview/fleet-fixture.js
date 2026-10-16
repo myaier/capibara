@@ -33,6 +33,10 @@ export function setupFleetFixture({ uninstalled = false } = {}) {
   // Each installation has its own update service; this page's (mac) is also the one the native useRpc stand-in answers.
   const updates = { mac: globalThis.__previewUpdate = previewUpdateState(uninstalled ? "update-available" : "fleet") };
   updates.win = structuredClone(updates.mac);
+  const restarts = {};
+  // An update or reload started outside this page: the installation leaves the registry for `ms`, while its daemon config still lists
+  // it installed and enabled.
+  globalThis.__previewRestartHost = (id, ms) => restarts[id](ms);
   for (const host of globalThis.__fleetPreviewHosts.filter(host => host.serverId !== "build")) {
     const agents = structuredClone(rawAgents.filter(agent => !agent.archivedAt && !agent.parentAgentId).slice(0, host.serverId === "mac" ? 3 : 2));
     for (const [i, agent] of agents.entries()) { agent.title = `${host.serverId === "mac" ? "Mac" : "Windows"} 会话 ${i + 1}`; agent.model = host.serverId === "mac" ? "mac-model" : "win-model"; agent.provider = host.serverId === "mac" ? "codex" : "claude"; agent.createdAt = new Date().toISOString(); }
@@ -42,8 +46,15 @@ export function setupFleetFixture({ uninstalled = false } = {}) {
         archive: async () => { globalThis.__previewFleetCalls.push({ host: host.serverId, method: "archive", id }); agents.find(agent => agent.id === id).archivedAt = new Date().toISOString(); },
       }),
     } };
-    hostRegistry.register({ serverId: host.serverId, hostname: host.label, protocol: 1, version: HOST_DATA_VERSION, capabilities: ["fleet-read-v1", "fleet-directory-v1"], now: new Date().toISOString(), nonce: "" },
-      hostInvoke(host, agents, updates[host.serverId], contracts));
+    const invoke = hostInvoke(host, agents, updates[host.serverId], contracts);
+    const register = () => hostRegistry.register({ serverId: host.serverId, hostname: host.label, protocol: 1, version: HOST_DATA_VERSION, capabilities: ["fleet-read-v1", "fleet-directory-v1"], now: new Date().toISOString(), nonce: "" }, invoke);
+    let unregister = register();
+    restarts[host.serverId] = ms => {
+      globalThis.__fleetPreviewClients[host.serverId].config = { get: async () => ({ requestId: "fixture-config",
+        config: { pluginsEnabled: true, plugins: { "agent-observatory": { source: "directory", path: "C:\\Users\\demo\\.paseo\\plugins\\agent-observatory" } } } }) };
+      unregister();
+      setTimeout(() => { unregister = register(); }, ms);
+    };
   }
   if (uninstalled) {
     // Like a client that knows Windows only by its pairing offer: Paseo labels it with the server ID, the installation knows its name.
