@@ -15,7 +15,8 @@ import { completeFixtureAgent, fixtureAgents, fixtureAnalytics, fixtureBackgroun
 
 const search = new URLSearchParams(location.search);
 const scenario = search.get("scenario") ?? "all";
-if (scenario === "fleet") setupFleetFixture();
+const fleet = scenario === "fleet" || scenario === "fleet-hosts";
+if (fleet) setupFleetFixture({ uninstalled: scenario === "fleet-hosts" });
 const light = search.get("theme") === "light";
 const theme = light ? paseoLight : paseoDark;
 globalThis.__previewTheme = theme;
@@ -55,7 +56,7 @@ function Preview() {
   const host = { id: "fixture-host", label: "Local development" };
   const navigation = { openAgent({ agentId }) { if (scenario === "navigation-error") throw new Error("模拟宿主导航失败"); globalThis.__previewOpenedAgent = agentId; readFixtureInNative(agentId); }, openWorkspace({ workspaceId }) { globalThis.__previewOpenedWorkspace = workspaceId; } };
   const layout = { compact: innerWidth < 700, platform: "web" };
-  if (scenario === "fleet") {
+  if (fleet) {
     const host = { id: "mac", label: "MacBook Pro" };
     const navigation = { openAgent: value => { globalThis.__previewFleetNavigation = value; }, openWorkspace: value => { globalThis.__previewFleetNavigation = value; } };
     return <QueryClientProvider client={client}><HostBar archiveMode={archiveMode} /><div className="plugin-frame"><FleetProvider host={host}>

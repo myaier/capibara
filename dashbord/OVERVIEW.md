@@ -19,12 +19,13 @@ English and Simplified Chinese are built in. The device language is used unless 
 - To confirm a resume, the agent's own Claude Code, Codex or Pi session log is searched for that run's ids (compared, not kept).
 - Scheduled runs: `$PASEO_HOME/schedules/*.json`, `projects/workspaces.json`, and the records of agents the daemon no longer lists. It never writes them.
 - The daemon config's provider list, to tell which providers take a message mid-turn and which share a usage limit.
+- Other hosts Paseo is connected to (the Hosts entry): where this plugin runs, its version and update state through its own RPC. For a host where it does not run, that host's daemon config, of which only three facts are kept (whether this plugin is installed, whether it is enabled, whether plugins are on); the rest is dropped at once and never stored or sent on. For a command it lists that host's workspaces to pick one for a terminal and reads that terminal's output.
 
 The client loads HTTP(S) images embedded in displayed Markdown directly from their URLs. The daemon does not fetch remote images.
 
 ## What it writes
 
-Plugin records go to `$PASEO_HOME/plugin-data/agent-observatory` (folder 0700; files 0600, bounded, replaced atomically): telemetry, statistics, token counts, usage-limit history, read receipts, preferences, the schedule and resume ledgers, the device's time zone name, the send ledger (messages on their way, then a week of short previews), the language state and translation templates. Session names and their manual/generated provenance labels are saved by Paseo through its agent update API.
+Plugin records go to `$PASEO_HOME/plugin-data/agent-observatory` (folder 0700; files 0600, bounded, replaced atomically): telemetry, statistics, token counts, usage-limit history, read receipts, preferences (including hosts the Hosts panel should ignore), when each connected host was last seen and which version of this plugin it ran, the schedule and resume ledgers, the device's time zone name, the send ledger (messages on their way, then a week of short previews), the language state and translation templates. Session names and their manual/generated provenance labels are saved by Paseo through its agent update API.
 
 The schedule ledger keeps run times, status, ids, the host's error messages (300 characters), links without credentials, schedule names and cadences, never replies or prompts. Usage-limit history keys accounts by a hashed name. Telemetry keeps why a turn stopped and a merge or pull request link, never the reply.
 
@@ -37,7 +38,9 @@ The following actions run when you ask; automatic session naming is described se
 - sending a quick reply (the button's words) to an agent: steered into the running turn where supported, otherwise after you confirm the interruption, or queued until the turn ends; a retry is delivered at most once;
 - scheduling a one-off heartbeat, at a time you confirm, that resumes an agent after its usage limit resets; it counts as done only on proof tied to that run, is never resent when the host cannot tell, and only the plugin's own resume heartbeats are deleted;
 - handing a stopped agent over to another profile;
-- renaming a session from its context menu; manual names are preserved by automatic naming.
+- renaming a session from its context menu; manual names are preserved by automatic naming;
+- from the Hosts panel, updating one host or, after one confirmation, every installed host to the revision this page's installation offers, through each host's own reviewed update (other hosts first);
+- from the Hosts panel, after you confirm the commands shown, opening a terminal in one of another host's workspaces to install this plugin there (`paseo plugin add` with this installation's source), enable it (`paseo plugin enable agent-observatory`) or upgrade an installation too old to update itself (`paseo plugin update agent-observatory --yes`, then `paseo plugin reload agent-observatory`). A successful command closes its terminal; a failed one leaves it open.
 
 Some use daemon messages the plugin API lacks, over its own daemon connection. It can open http(s) links.
 
@@ -55,4 +58,4 @@ The scheduled runs page is modeled on the schedule-runs plugin by panrafal.
 
 ## Multiple machines
 
-The original global screens combine every connected installation through Paseo authenticated connections. There is no machine picker. Business filters retain source identity; operations target the source machine. Full statistics require a compatible backend on each machine. Historical concurrency is an observed lower bound, and filtered history is limited to retained session/hour attribution. Unavailable machines and unverified deduplication coverage are explicit.
+The original global screens combine every connected installation through Paseo authenticated connections. There is no machine picker. Business filters retain source identity; operations target the source machine. Full statistics require a compatible backend on each machine. Historical concurrency is an observed lower bound, and filtered history is limited to retained session/hour attribution. Unavailable machines and unverified deduplication coverage are explicit. The Hosts entry at the top right lists every connected host with this plugin's state and offers the installs and updates above.

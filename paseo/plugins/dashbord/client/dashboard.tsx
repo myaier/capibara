@@ -48,7 +48,7 @@ import { ViewTabs, type ViewTab } from "./view-tabs";
 import { Swimlane } from "./swimlane";
 import { SessionList, countRunningDescendants, groupTitles, type SessionItem } from "./session-list";
 import { SessionActions, useSessionActions, useAutomaticSessionNames } from "./session-actions";
-import { PluginUpdateChip, PluginUpdateSheet, usePluginUpdate } from "./plugin-update";
+import { HostsChip, HostsDialog, useHostsPanel } from "./hosts-panel";
 import { LiveDot, PhaseLegend, StatusChip, hueColor } from "./status";
 import { FilterSheet, ProjectSheet, RangeSheet, readFilterNames, sessionScopeNames, type FilterState, type SessionScope } from "./filters";
 import { ActionMenu, Banner, Button, Chip, ChipBar, EmptyState, IconButton, SearchField, Sheet, Skeleton, Spacer, SplitView, SyncStatus, Toolbar, fontSize, hairline, hueFor, radius, space, useCompactLayout, type MenuAction } from "./kit";
@@ -129,8 +129,7 @@ export function DashboardView({ theme, layout, host, navigation, workspaceId, in
   const [menuOpen, setMenuOpen] = useState(false);
   const [legendOpen, setLegendOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [updateOpen, setUpdateOpen] = useState(false);
-  const pluginUpdate = usePluginUpdate(host.id);
+  const [hostsOpen, setHostsOpen] = useState(false);
   // 归档已读完成 (opus-B18): the first tap marks the rows, the second archives exactly those still eligible.
   const [archiveMarks, setArchiveMarks] = useState<ReadonlySet<string> | null>(null), [archivingMarked, setArchivingMarked] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -211,6 +210,8 @@ export function DashboardView({ theme, layout, host, navigation, workspaceId, in
   const snoozedAt = useCallback((agent: AgentRecord) => isCompletionSnoozed(agent, snoozes, filterNow), [snoozes, filterNow]);
   // Host-wide settings (shared with the sidebar badge): child Agents' results count only when asked to (opus-F15).
   const settings = preferences.snapshot?.settings ?? defaultObservatorySettings;
+  const hostsPanel = useHostsPanel({ pageHostId: host.id, pageHostLabel: host.label, ignored: settings.ignoredHosts ?? [],
+    onIgnoredChange: next => { void preferences.mutate({ settings: { ignoredHosts: next } }).catch(() => toast.error(t("coreDashboard.settingsWereNotSavedTryAgain"))); } });
   const attentionOf = useCallback((agent: AgentRecord) => needsAttention(agent, snoozedAt(agent), { childCompletions: settings.childCompletions }), [snoozedAt, settings.childCompletions]);
   // 待回复 counts the Agents waiting on your answer to a question; 待审批 the ones waiting on a permission or plan (opus-F12).
   const liveTally = useCallback((list: readonly AgentRecord[]) => { let attention = 0, approvals = 0, running = 0, unread = 0, snoozed = 0, idle = 0; for (const agent of list) { if (agent.hostOnline === false) continue; if (attentionOf(agent)) attention++; const waiting = agent.archivedAt ? null : waitingKind(agent); if (waiting && waiting !== "question") approvals++; if (matchesStatus(agent.status, "running")) running++; if (!agent.archivedAt && (waiting === "question" || (agent.status === "idle" && !agent.pendingPermissionCount))) idle++; if (isUnreadCompletion(agent)) { if (heldBySnooze(agent, snoozedAt(agent))) snoozed++; else unread++; } } return { attention, approvals, running, unread, snoozed, idle }; }, [attentionOf, snoozedAt]);
@@ -387,7 +388,7 @@ export function DashboardView({ theme, layout, host, navigation, workspaceId, in
       : sessionsTab && archiveOffer.withheld && archiveOffer.reason ? [{ key: "archive-read", label: t("coreDashboard.archiveCompletedAndRead2"), icon: "Archive", disabled: true, hint: t("coreDashboard.unavailable", { value1: archiveOffer.reason }), onPress: () => {} }] : []),
     ...(sessionsTab ? [{ key: "legend", label: t("coreDashboard.statusLegend"), icon: "Palette", tone: "violet" as const, hint: t("coreDashboard.whatEachColorAndMarkerMeans"), onPress: () => setLegendOpen(true) }] : []),
     ...(!archiveMode ? [{ key: "settings", label: t("coreDashboard.observationSettings"), icon: "Settings2", hint: t("coreDashboard.howAttentionIsCountedAcrossAllPages"), onPress: () => setSettingsOpen(true) }] : []),
-    { key: "update", label: pluginUpdate.prompt ? t("pluginUpdate.menuAvailable") : t("pluginUpdate.menu"), icon: "CircleArrowUp", hint: pluginUpdate.state ? `v${pluginUpdate.state.version}` : undefined, onPress: () => setUpdateOpen(true) },
+    { key: "hosts", label: hostsPanel.summary.attention ? t("hosts.menuAttention", { count: hostsPanel.summary.attention }) : t("hosts.menu"), icon: "Server", hint: `v${hostsPanel.pageVersion}`, onPress: () => setHostsOpen(true) },
     { key: "refresh", label: t("coreDashboard.refresh"), icon: "RefreshCw", disabled: data.isRefreshing, onPress: refresh },
   ];
   // Each view has its own colours. Phones show the unselected views as coloured icons only.
@@ -417,7 +418,7 @@ export function DashboardView({ theme, layout, host, navigation, workspaceId, in
           <LiveDot color={hueColor(theme, "ok")} size={6} live={data.live} />
           {compact ? null : <Text numberOfLines={1} style={{ color: colors.foregroundMuted, fontSize: fontSize.meta }}>{sync.label}</Text>}
         </View> : <SyncStatus theme={theme} state={sync.state} label={compact ? undefined : sync.label} />}</View>
-        <PluginUpdateChip theme={theme} compact={compact} controls={pluginUpdate} onOpen={() => setUpdateOpen(true)} />
+        <HostsChip theme={theme} compact={compact} panel={hostsPanel} onOpen={() => setHostsOpen(true)} />
         <IconButton theme={theme} icon="Ellipsis" label={t("coreDashboard.moreActions")} onPress={() => setMenuOpen(true)} />
       </Toolbar>
       {searching ? <View style={{ paddingHorizontal: space.md, paddingTop: space.sm }}><SearchField theme={theme} value={query} onChangeText={setQuery} placeholder={t("coreDashboard.searchTasksProjectsOrBranches")} accessibilityLabel={t("coreDashboard.searchSessions")} autoFocus={!query} grow={false} /></View> : null}
@@ -464,7 +465,7 @@ export function DashboardView({ theme, layout, host, navigation, workspaceId, in
     </>}
     <SessionActions theme={theme} controls={sessionActions} />
     <ActionMenu theme={theme} title={t("coreDashboard.moreActions")} open={menuOpen} onClose={() => setMenuOpen(false)} actions={menu} />
-    <PluginUpdateSheet theme={theme} open={updateOpen} onClose={() => setUpdateOpen(false)} controls={pluginUpdate} />
+    <HostsDialog theme={theme} open={hostsOpen} onClose={() => setHostsOpen(false)} panel={hostsPanel} navigation={navigation} />
     <Sheet title={t("coreDashboard.statusLegend")} open={legendOpen} onClose={() => setLegendOpen(false)}><PhaseLegend theme={theme} /></Sheet>
     <Sheet title={t("coreDashboard.observationSettings")} open={settingsOpen} onClose={() => setSettingsOpen(false)}>
       {/* Catalog migration preserves: 子 Agent 出错、撞额度、空轮或没收尾、等审批或提问时照常计入 */}

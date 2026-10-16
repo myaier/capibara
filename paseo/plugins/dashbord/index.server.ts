@@ -40,6 +40,7 @@ import { registerClientChunks } from "./server/ui-chunk";
 import { registerHostData } from "./server/host-data";
 import { registerSessionActions } from "./server/session-actions";
 import { registerPluginUpdates } from "./server/plugin-update";
+import { registerHostMemory } from "./server/host-memory";
 
 export default function contribute(host: PluginServerContext) {
   const locales = createLocaleService(host, { pluginId: "agent-observatory", builtins: BUILTIN_CATALOGS });
@@ -58,6 +59,8 @@ export default function contribute(host: PluginServerContext) {
   const bridge = createProcessBridge();
   const removeSessionActions = registerSessionActions(server, bridge);
   const removePluginUpdates = registerPluginUpdates(server, bridge);
+  // 主机 panel: when each connected host was last seen and which version it ran.
+  const removeHostMemory = registerHostMemory(server);
   const directory = new StatsDirectory();
   // Read limit notices without a zone and token days in the devices' time zone, not the daemon's (grok-F2).
   const zones = new DeviceZone();
@@ -170,6 +173,7 @@ export default function contribute(host: PluginServerContext) {
     removeHostData();
     removeSessionActions();
     removePluginUpdates();
+    removeHostMemory();
     locales.dispose();
     deferred.stop();
     statsClosed = true;

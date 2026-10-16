@@ -25,13 +25,17 @@ const changelog = `# Changelog
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 /** Waits for the background check, however many filesystem turns it takes. */
 async function idle(service: PluginUpdates) { for (let i = 0; i < 400 && (await service.get()).checking; i++) await new Promise(resolve => setTimeout(resolve, 5)); }
-async function fixture(options: { target?: string; outcome?: string; apply?: (proposals: unknown[]) => Promise<Record<string, unknown>> } = {}) {
+async function fixture(options: { target?: string; outcome?: string; apply?: (proposals: unknown[]) => Promise<Record<string, unknown>>; ref?: string | Error } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "observatory-update-"));
   const requests: Record<string, unknown>[] = [], gitCalls: string[][] = [];
   let target = options.target ?? next, time = 1_000_000;
   const bridge = { request: async (message: Record<string, unknown>) => {
     requests.push(message);
     if (message.type === "plugin.source.update.apply.request") return options.apply ? options.apply(message.proposals as unknown[]) : new Promise<Record<string, unknown>>(() => {});
+    if (message.type === "plugin.source.status.request") {
+      if (options.ref instanceof Error) throw options.ref;
+      return { plugins: [{ id: "agent-observatory", source: "git", path: "dashbord", ...(options.ref ? { ref: options.ref } : {}) }] };
+    }
     const update = target !== installed;
     return { plugins: [{ id: "agent-observatory", outcome: options.outcome ?? (update ? "update" : "current"),
       current: { identity: { kind: "git", remote: "https://github.com/myaier/capibara.git", pluginPath: "dashbord" }, currentRevision: installed },
@@ -70,10 +74,13 @@ test("a check previews the installation's source, reads the target's notes once 
   assert.deepEqual(f.gitCalls.find(args => args.includes("fetch"))?.slice(-3), ["--", "https://github.com/myaier/capibara.git", next]);
   assert.deepEqual(f.gitCalls.find(args => args.includes("show"))?.at(-1), `${next}:dashbord/CHANGELOG.md`);
   // Within 30 minutes nothing is previewed again; a refresh previews, but the same target's notes are not refetched.
-  await f.service.get(); assert.equal(f.requests.length, 1);
+  const previews = () => f.requests.filter(request => request.type === "plugin.source.update.preview.request").length;
+  await f.service.get(); assert.equal(previews(), 1);
   await f.service.get(true); await idle(f.service);
-  assert.equal(f.requests.length, 2); assert.equal(f.gitCalls.filter(args => args.includes("show")).length, 1);
-  f.advance(30 * 60_000); await f.service.get(); await idle(f.service); assert.equal(f.requests.length, 3);
+  assert.equal(previews(), 2); assert.equal(f.gitCalls.filter(args => args.includes("show")).length, 1);
+  f.advance(30 * 60_000); await f.service.get(); await idle(f.service); assert.equal(previews(), 3);
+  // The followed ref is asked once per source, not at every check.
+  assert.equal(f.requests.filter(request => request.type === "plugin.source.status.request").length, 1);
 });
 
 test("dismissing hides only that revision, survives a restart, and a newer revision prompts again", async t => {
@@ -141,4 +148,18 @@ test("the process an update restarts into reports that update once its revision 
   const late = restarted(1_000_000 + 31 * 60_000);
   await late.get(); await idle(late);
   assert.equal((await late.get()).justUpdated, null);
+});
+
+test("the state names the installation's own source and the ref it follows, so another host can install the same", async t => {
+  const tracking = await fixture({ ref: "main" }); t.after(() => tracking.cleanup());
+  assert.equal((await tracking.service.get()).source, null);
+  await idle(tracking.service);
+  assert.deepEqual((await tracking.service.get()).source, { reference: "git:https://github.com/myaier/capibara.git:dashbord", ref: "main" });
+  const defaultBranch = await fixture(); t.after(() => defaultBranch.cleanup());
+  await defaultBranch.service.get(); await idle(defaultBranch.service);
+  assert.deepEqual((await defaultBranch.service.get()).source, { reference: "git:https://github.com/myaier/capibara.git:dashbord", ref: null });
+  // A daemon that cannot report the ref still yields the source; the default branch is assumed.
+  const unknownRef = await fixture({ ref: new Error("unsupported") }); t.after(() => unknownRef.cleanup());
+  await unknownRef.service.get(); await idle(unknownRef.service);
+  assert.deepEqual((await unknownRef.service.get()).source, { reference: "git:https://github.com/myaier/capibara.git:dashbord", ref: null });
 });
