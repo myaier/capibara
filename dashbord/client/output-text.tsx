@@ -13,7 +13,7 @@ import { ResultImage } from "./result-image";
 function Inline({ theme, tokens, depth = 0 }: { theme: PluginTheme; tokens: ProseToken[]; depth?: number }) {
   return <>{tokens.map((token, key) => {
     if (token.kind === "text" || token.kind === "image") return token.text;
-    if (token.kind === "code") return <Text key={key} style={{ fontFamily: monoFont, fontSize: fontSize.small, backgroundColor: theme.colors.surface2 }}>{token.text}</Text>;
+    if (token.kind === "code") return token.text.trim() ? <Text key={key} style={{ fontFamily: monoFont, fontSize: fontSize.small, backgroundColor: theme.colors.surface2 }}>{token.text}</Text> : token.text;
     if (token.kind === "link") return <Text key={key} accessibilityRole="link" accessibilityHint={t("secondaryResultView.openInBrowser")}
       onPress={() => { void openExternalUrl(token.url).catch(() => {}); }} style={{ color: hue(theme, "blue", "text"), textDecorationLine: "underline" }}>{token.text}</Text>;
     const style: TextStyle = token.kind === "bold" ? { fontWeight: "600" } : token.kind === "italic" ? { fontStyle: "italic" } : { textDecorationLine: "line-through" };

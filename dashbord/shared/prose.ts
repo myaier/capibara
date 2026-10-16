@@ -81,7 +81,9 @@ export function proseBlocks(chunk: string): ProseBlock[] {
         if (closing.length >= marker.length && [...closing].every(char => char === marker[0])) break;
         content.push(lines[lineIndex]!);
       }
-      blocks.push({ kind: "code", language: fence[2]!.trim(), text: content.join("\n") });
+      // An empty or whitespace-only fence carries nothing and used to render as a mysterious empty box.
+      const text = content.join("\n");
+      if (text.trim()) blocks.push({ kind: "code", language: fence[2]!.trim(), text });
       continue;
     }
     if (/^ {0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$/.test(line)) { flush(); blocks.push({ kind: "rule" }); continue; }

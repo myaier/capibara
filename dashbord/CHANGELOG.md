@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.20.0-dev.2 · Capibara · 2026-10-17
+
+- Session rows, the session detail header and the project filter wear the project's own Paseo color and icon: the same ten identity colors, the same hash over the same project view key, and the favicon / logo the host discovered or the user uploaded, read from each host's project list. Fleet rows resolve the host from the host-qualified project id. Projects the host does not know keep the previous name-hash color.
+- Replies no longer render an empty or whitespace-only code fence as a mysterious empty box, and a whitespace-only inline code span keeps its spaces instead of drawing a gray square.
+
 ## 2.20.0-dev.1 · Capibara · 2026-10-16
 
 - The version chip at the top right becomes **Hosts**. It shows the version while every host is fine, progress while updating, and how many hosts need attention otherwise (red when one failed); phones show it only then, and the ⋯ menu always offers **Hosts**.

@@ -6,6 +6,7 @@ import { AGENT_STATUSES, type AgentStatus } from "../shared/model";
 import type { SavedView } from "../shared/preferences";
 import { rangeLabels, type TimeRange } from "../shared/time-range";
 import { Button, Chip, Divider, IconButton, MetaLine, ProjectMark, Sheet, TextField, fontSize, hue, space, type Tone } from "./kit";
+import { useProjectIdentityResolver } from "./project-identity";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { ChoiceList, statusNames } from "./ui";
 
@@ -65,12 +66,15 @@ export function FilterSheet({ theme, open, onClose, archiveMode, state, checkout
   </Sheet>;
 }
 
-export function ProjectSheet({ theme, open, onClose, projects, value, total, onChange }: {
+export function ProjectSheet({ theme, open, onClose, projects, value, total, onChange, serverId }: {
   theme: PluginTheme; open: boolean; onClose: () => void; projects: readonly { id: string; name: string; count: number }[]; value: string; total: number; onChange: (id: string) => void;
+  /** The host these projects live on; their marks then wear Paseo's colors and icons. */
+  serverId?: string | null;
 }) {
+  const resolve = useProjectIdentityResolver();
   return <Sheet title={t("coreFilters.projects")} open={open} onClose={onClose}>
     <ChoiceList theme={theme} value={value} onChange={id => { onChange(id); onClose(); }} options={[{ value: "all", label: t("coreFilters.allProjects"), count: total, leading: <Icon name="Layers" size={18} color={hue(theme, "blue")} /> },
-      ...projects.map(project => ({ value: project.id, label: project.name, count: project.count, leading: <ProjectMark theme={theme} name={project.name} size={20} /> }))]} />
+      ...projects.map(project => { const identity = resolve(serverId ?? null, project.id); return { value: project.id, label: project.name, count: project.count, leading: <ProjectMark theme={theme} name={project.name} size={20} color={identity?.color} icon={identity?.icon} /> }; })]} />
   </Sheet>;
 }
 
