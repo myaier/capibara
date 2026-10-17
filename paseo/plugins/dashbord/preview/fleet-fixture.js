@@ -75,7 +75,7 @@ function setupUninstalledHost(contracts) {
   const host = { serverId: "build", label: "BUILD-DEMO" }, latest = previewUpdateState("fleet");
   Object.assign(latest, { version: "2.18.0-dev.11", revision: "8e1f2c3d4b5a69788796a5b4c3d2e1f00a1b2c3d" });
   const situation = new URLSearchParams(location.search).get("hostsCase");
-  let installed = false;
+  let installed = false, pluginsOn = situation !== "plugins-off";
   globalThis.__previewTerminals = [];
   globalThis.__previewConfigReads = [];
   globalThis.__fleetPreviewClients.build = { ...fixturePaseo,
@@ -85,7 +85,7 @@ function setupUninstalledHost(contracts) {
       globalThis.__previewConfigReads.push(host.serverId);
       const entry = installed || ["disabled", "too-old", "plugins-off"].includes(situation)
         ? { "agent-observatory": { source: "directory", path: "C:\\Users\\demo\\.paseo\\plugins\\agent-observatory", ...(situation === "disabled" && !installed ? { enabled: false } : {}) } } : {};
-      return { requestId: "fixture-config", config: { pluginsEnabled: situation !== "plugins-off", providers: { claude: { env: { ANTHROPIC_API_KEY: "demo-not-a-key" } } }, plugins: entry } };
+      return { requestId: "fixture-config", config: { pluginsEnabled: pluginsOn, providers: { claude: { env: { ANTHROPIC_API_KEY: "demo-not-a-key" } } }, plugins: entry } };
     } },
     workspaces: { list: async () => ({ requestId: "fixture-workspaces", entries: [{ id: "ws-build", projectRootPath: "C:\\Users\\demo\\repo", workspaceDirectory: "C:\\Users\\demo\\repo", archivingAt: null }],
       pageInfo: { nextCursor: null, prevCursor: null } }) },
@@ -98,7 +98,7 @@ function setupUninstalledHost(contracts) {
         if (failure) return { terminalId: "term-build", totalLines: 1, lines: ["'paseo' is not recognized as an internal or external command,", "__OBSERVATORY_HOST_COMMAND__ no-cli"] };
         if (record.polls < 2) return { terminalId: "term-build", totalLines: 1, lines: ["Cloning https://github.com/myaier/capibara.git"] };
         if (!installed) {
-          installed = true;
+          installed = true; pluginsOn = true;
           // The host's daemon starts the new installation, which registers with this client a moment later.
           setTimeout(() => hostRegistry.register({ serverId: host.serverId, hostname: host.label, protocol: 1, version: latest.version, capabilities: ["fleet-read-v1", "fleet-directory-v1"], now: new Date().toISOString(), nonce: "" },
             hostInvoke(host, [], latest, contracts)), 400);

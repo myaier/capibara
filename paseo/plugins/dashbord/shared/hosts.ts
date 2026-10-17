@@ -6,7 +6,7 @@ import { OBSERVATORY_PLUGIN_ID, type ChangelogEntry, type PluginSource, type Upd
  * The 主机 panel's model: one row per host Paseo is connected to, what state this plugin is in there, and what one click may do.
  * Installed hosts update through their own reviewed update RPC. A host without a running installation can only be reached through
  * Paseo's public client API: its daemon config tells whether the plugin is installed, disabled or plugins are off, and install,
- * enable and upgrade run a `paseo plugin …` command in a terminal of one of its workspaces.
+ * enable, upgrade and turning plugins on run `paseo …` commands in a terminal of one of its workspaces.
  */
 
 /** A host as Paseo lists it to plugins (`useHosts()`). */
@@ -54,7 +54,7 @@ export function compareVersions(a: string, b: string): number {
   return 0;
 }
 
-export type HostCommandKind = "install" | "enable" | "upgrade";
+export type HostCommandKind = "install" | "enable" | "upgrade" | "plugins-on";
 export type HostJobResult = "ok" | "failed" | "no-cli" | "no-workspace" | "timeout" | "not-running" | "error";
 /** A command this client runs in a terminal on another host. */
 export interface HostJob {
@@ -88,7 +88,7 @@ export interface HostFacts {
 
 export type HostRowState = "offline" | "connecting" | "checking" | "plugins-off" | "missing" | "disabled" | "too-old"
   | "job-running" | "job-waiting" | "job-failed" | "queued" | "updating" | "update-failed" | "outdated" | "diverged" | "check-failed" | "current";
-export type HostRowAction = "install" | "enable" | "upgrade" | "update" | "retry-job" | "retry-update";
+export type HostRowAction = HostCommandKind | "update" | "retry-job" | "retry-update";
 export interface HostRow {
   serverId: string; label: string; state: HostRowState; action: HostRowAction | null;
   page: boolean; ignored: boolean; version: string | null; revision: string | null;
@@ -158,7 +158,7 @@ export function hostRow(fact: HostFacts, target: SyncTarget | null): HostRow {
   if (!config && !fact.config.error) return row("checking");
   // An unreadable config cannot say whether the plugin is there; installing is offered, and an existing one makes the command fail visibly.
   if (!config) return row("check-failed", "install", fact.config.error);
-  if (!config.pluginsEnabled) return row("plugins-off");
+  if (!config.pluginsEnabled) return row("plugins-off", "plugins-on");
   if (!config.installed) return row("missing", "install");
   if (!config.enabled) return row("disabled", "enable");
   // Installed and enabled but not registered: too old for this client's protocol, or failing to start. A host that just connected
@@ -167,7 +167,7 @@ export function hostRow(fact: HostFacts, target: SyncTarget | null): HostRow {
 }
 
 /** Rows needing a decision; ignored hosts never prompt. */
-const ATTENTION: readonly HostRowState[] = ["missing", "disabled", "too-old", "outdated", "update-failed", "job-failed"];
+const ATTENTION: readonly HostRowState[] = ["plugins-off", "missing", "disabled", "too-old", "outdated", "update-failed", "job-failed"];
 const BUSY: readonly HostRowState[] = ["queued", "updating", "job-running", "job-waiting"];
 export function hostSummary(rows: readonly HostRow[]) {
   const active = rows.filter(row => !row.ignored);
@@ -184,8 +184,8 @@ export function planSync(rows: readonly HostRow[]): { updates: string[]; command
   const updates = active.filter(row => row.state === "outdated" || row.state === "update-failed")
     .sort((a, b) => Number(a.page) - Number(b.page)).map(row => row.serverId);
   const commands = active.flatMap(row => {
-    const kind: HostCommandKind | null = row.state === "missing" ? "install" : row.state === "disabled" ? "enable" : row.state === "too-old" ? "upgrade"
-      : row.state === "job-failed" && row.job ? row.job.kind : null;
+    const kind: HostCommandKind | null = row.state === "plugins-off" ? "plugins-on" : row.state === "missing" ? "install" : row.state === "disabled" ? "enable"
+      : row.state === "too-old" ? "upgrade" : row.state === "job-failed" && row.job ? row.job.kind : null;
     return kind ? [{ serverId: row.serverId, kind }] : [];
   });
   return { updates, commands };
@@ -199,8 +199,14 @@ const SAFE_SOURCE = /^[A-Za-z0-9][A-Za-z0-9._~:/@+-]{0,299}$/, SAFE_REF = /^[A-Z
 /**
  * The `paseo` invocations, run in order: install from the page's own source; enable the configured plugin; upgrade applies
  * what the host's own source offers (`--yes`, keeping the ref it follows) and reloads it, which also restarts one that failed.
+ * Turning plugins on edits the host's config and has its daemon reload it, which starts every enabled plugin there; the install
+ * or enable this plugin still needs according to that host's `config` follows.
  */
-export function hostCommand(kind: HostCommandKind, source: PluginSource | null | undefined): string[][] | null {
+export function hostCommand(kind: HostCommandKind, source: PluginSource | null | undefined, config?: HostPluginConfig | null): string[][] | null {
+  if (kind === "plugins-on") {
+    const then = config && !config.installed ? hostCommand("install", source) : config && !config.enabled ? hostCommand("enable", source) : [];
+    return then ? [["daemon", "config", "set", "pluginsEnabled", "true"], ["daemon", "reload"], ...then] : null;
+  }
   if (kind === "enable") return [["plugin", "enable", OBSERVATORY_PLUGIN_ID]];
   if (kind === "upgrade") return [["plugin", "update", OBSERVATORY_PLUGIN_ID, "--yes"], ["plugin", "reload", OBSERVATORY_PLUGIN_ID]];
   if (!source || !SAFE_SOURCE.test(source.reference)) return null;

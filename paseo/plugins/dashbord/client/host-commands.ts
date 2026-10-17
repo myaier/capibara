@@ -1,5 +1,5 @@
 import { commandResult, displayCommand, hostCommand, hostPlatform, outputTail, pickWorkspace, terminalInvocation,
-  type HostCommandKind, type HostJob, type HostJobResult } from "../shared/hosts";
+  type HostCommandKind, type HostJob, type HostJobResult, type HostPluginConfig } from "../shared/hosts";
 import type { PluginSource } from "../shared/plugin-update";
 import { t } from "../shared/text";
 
@@ -42,15 +42,16 @@ export const hostJobs = createStore<ReadonlyMap<string, HostJob>>(new Map());
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error)).slice(0, 300);
 
 /**
- * Runs one install, enable or upgrade (see `hostCommand`) on another host in a terminal of one of its workspaces, and follows it
- * until the host's installation registers. Success closes the terminal; a failure keeps it open with the output's last lines on
- * the job. A host has at most one command at a time.
+ * Runs one install, enable, upgrade or turning plugins on (see `hostCommand`, given the page's `source` and the host's `config`)
+ * on another host in a terminal of one of its workspaces, and follows it until the host's installation registers. Success closes
+ * the terminal; a failure keeps it open with the output's last lines on the job. A host has at most one command at a time.
  */
-export async function runHostCommand(serverId: string, kind: HostCommandKind, source: PluginSource | null | undefined, deps: CommandDeps,
+export async function runHostCommand(serverId: string, kind: HostCommandKind,
+  { source, config }: { source: PluginSource | null | undefined; config?: HostPluginConfig | null }, deps: CommandDeps,
   jobs: Store<ReadonlyMap<string, HostJob>> = hostJobs): Promise<HostJobResult | "busy"> {
   const running = jobs.get().get(serverId);
   if (running && running.state !== "failed") return "busy";
-  const steps = hostCommand(kind, source), startedAt = deps.now();
+  const steps = hostCommand(kind, source, config), startedAt = deps.now();
   setEntry(jobs, serverId, { serverId, kind, command: steps ? steps.map(displayCommand).join(" && ") : "", state: "running", startedAt, result: null, output: [], error: null, workspaceId: null, terminalId: null });
   const mine = () => jobs.get().get(serverId)?.startedAt === startedAt;
   const update = (patch: Partial<HostJob>) => { const job = jobs.get().get(serverId); if (job && mine()) setEntry(jobs, serverId, { ...job, ...patch }); };

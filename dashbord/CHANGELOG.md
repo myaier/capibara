@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.20.0-dev.4 · Capibara · 2026-10-17
+
+- A host with plugins turned off is no longer a dead end in the Hosts panel. **Turn on plugins** on its row, or **Sync all**, shows `paseo daemon config set pluginsEnabled true` and `paseo daemon reload`, followed by the install or enable the observatory still needs there, and runs them in one of that host's workspace terminals once confirmed. The confirmation says that every enabled plugin on that host starts, not just the observatory. Such a host now counts as needing attention.
+
 ## 2.20.0-dev.3 · Capibara · 2026-10-17
 
 Fixes from the Hosts panel's first run on two real machines:

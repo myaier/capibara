@@ -276,12 +276,24 @@ test("hosts: an installation restarted from elsewhere is given time to come back
   expect([...seen].filter(text => /版本过旧|升级/.test(text))).toEqual([]);
 });
 
-test("hosts: a host with plugins turned off says so and offers no command", async ({ page }, testInfo) => {
+test("hosts: plugins turned off on a host are turned on after confirming the commands, alone or in 全部同步", async ({ page }, testInfo) => {
   await open(page, testInfo, "fleet-hosts&hostsCase=plugins-off");
   await page.getByTestId("hosts-chip").click();
-  const build = page.getByRole("dialog", { name: "主机", exact: true }).getByTestId("host-row-build");
-  await expect(build).toContainText("这台主机关闭了插件功能，需要先在它的 Paseo 设置 → 插件里打开");
-  await expect(build.getByRole("button", { name: /^(安装|启用|升级)$/ })).toHaveCount(0);
+  const dialog = page.getByRole("dialog", { name: "主机", exact: true }), build = dialog.getByTestId("host-row-build");
+  await expect(build).toContainText("这台主机关闭了插件功能");
+  const note = dialog.getByText("开启后，这台主机上所有已启用的插件都会开始运行，不只是观测台。", { exact: true });
+  await dialog.getByRole("button", { name: "全部同步", exact: true }).click();
+  await expect(dialog.getByText("在 BUILD-DEMO 上开启插件功能", { exact: true })).toBeVisible();
+  await expect(note).toBeVisible();
+  await dialog.getByRole("button", { name: "返回", exact: true }).click();
+  await build.getByRole("button", { name: "开启插件", exact: true }).click();
+  await expect(dialog.getByText("paseo daemon config set pluginsEnabled true", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("paseo daemon reload", { exact: true })).toBeVisible();
+  await expect(note).toBeVisible();
+  await dialog.getByRole("button", { name: "确认执行", exact: true }).click();
+  expect((await page.evaluate(() => (globalThis as any).__previewTerminals[0].options)).args[3]).toContain("((call paseo daemon config set pluginsEnabled true && call paseo daemon reload) && echo");
+  await expect(toast(page, "已在 BUILD-DEMO 上开启插件功能")).toBeVisible({ timeout: 10_000 });
+  await expect(build).toContainText("v2.18.0-dev.11 · 最新", { timeout: 10_000 });
 });
 
 test("hosts: ignoring a host silences its prompt and keeps it listed", async ({ page }, testInfo) => {
