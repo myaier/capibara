@@ -40,7 +40,7 @@ The following actions run when you ask; automatic session naming is described se
 - handing a stopped agent over to another profile;
 - renaming a session from its context menu; manual names are preserved by automatic naming;
 - from the Hosts panel, updating one host or, after one confirmation, every installed host to the revision this page's installation offers, through each host's own reviewed update (other hosts first);
-- from the Hosts panel, after you confirm the commands shown, opening a terminal in one of another host's workspaces to install this plugin there (`paseo plugin add` with this installation's source), enable it (`paseo plugin enable agent-observatory`) or upgrade an installation too old to update itself (`paseo plugin update agent-observatory --yes`, then `paseo plugin reload agent-observatory`). A successful command closes its terminal; a failed one leaves it open.
+- from the Hosts panel, after you confirm the commands shown, opening a terminal in one of another host's workspaces to install this plugin there (`paseo plugin add` with this installation's source), enable it (`paseo plugin enable agent-observatory`) upgrade an installation too old to update itself (`paseo plugin update agent-observatory --yes`, then `paseo plugin reload agent-observatory`), or turn plugins on where they are off (`paseo daemon config set pluginsEnabled true`, then `paseo daemon reload`, which starts every enabled plugin on that host, followed by the install or enable this plugin still needs). A successful command closes its terminal; a failed one leaves it open.
 
 Some use daemon messages the plugin API lacks, over its own daemon connection. It can open http(s) links.
 

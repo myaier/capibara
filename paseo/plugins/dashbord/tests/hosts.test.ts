@@ -84,7 +84,7 @@ test("a host without a running installation is not installed, disabled, too old,
   assert.deepEqual(pick(hostRow(unregistered({ pluginsEnabled: true, installed: false, enabled: false }), null)), ["missing", "install"]);
   assert.deepEqual(pick(hostRow(unregistered({ pluginsEnabled: true, installed: true, enabled: false }), null)), ["disabled", "enable"]);
   assert.deepEqual(pick(hostRow(unregistered(installed), null)), ["too-old", "upgrade"]);
-  assert.deepEqual(pick(hostRow(unregistered({ pluginsEnabled: false, installed: true, enabled: true }), null)), ["plugins-off", null]);
+  assert.deepEqual(pick(hostRow(unregistered({ pluginsEnabled: false, installed: true, enabled: true }), null)), ["plugins-off", "plugins-on"]);
   // Absent or disabled is final at once; installed and enabled waits for the host to have started it.
   assert.equal(hostRow(unregistered({ pluginsEnabled: true, installed: false, enabled: false }, { settled: false }), null).state, "missing");
   assert.equal(hostRow(unregistered(installed, { settled: false }), null).state, "checking");
@@ -131,10 +131,10 @@ test("the summary counts what needs a decision, leaving ignored hosts and dismis
     hostRow(unregistered({ pluginsEnabled: false, installed: false, enabled: false }), target),
     hostRow(fact({ status: "offline", memory: remembered() }), target),
   ];
-  assert.deepEqual(hostSummary(rows), { total: 10, attention: 5, busy: 1, failed: 1 });
+  assert.deepEqual(hostSummary(rows), { total: 10, attention: 6, busy: 1, failed: 1 });
 });
 
-test("全部同步 updates every outdated or failed installation with the page last, and installs, enables or upgrades the others", () => {
+test("全部同步 updates every outdated or failed installation with the page last, and installs, enables, upgrades or turns plugins on for the others", () => {
   const target = { commit: next, version: null, entries: [], truncated: false };
   const outdated = (serverId: string, page = false, ignored = false) => hostRow(fact({ serverId, page, ignored, update: { state: update({ available: offered() }), error: null } }), target);
   const rows = [
@@ -150,17 +150,23 @@ test("全部同步 updates every outdated or failed installation with the page l
   ];
   assert.deepEqual(planSync(rows), {
     updates: ["srv_demo_win", "srv_demo_failed", "srv_demo_mac"],
-    commands: [{ serverId: "srv_demo_new", kind: "install" }, { serverId: "srv_demo_off", kind: "enable" }, { serverId: "srv_demo_old", kind: "upgrade" }, { serverId: "srv_demo_retry", kind: "enable" }],
+    commands: [{ serverId: "srv_demo_new", kind: "install" }, { serverId: "srv_demo_off", kind: "enable" }, { serverId: "srv_demo_old", kind: "upgrade" }, { serverId: "srv_demo_retry", kind: "enable" },
+      { serverId: "srv_demo_plugins_off", kind: "plugins-on" }],
   });
 });
 
-test("install adds the page's own source; enable and upgrade name this plugin; anything a shell could reinterpret is refused", () => {
+test("install adds the page's own source; enable and upgrade name this plugin; turning plugins on reloads the daemon before what the host still needs; anything a shell could reinterpret is refused", () => {
   assert.deepEqual(hostCommand("install", source), [["plugin", "add", "git:https://github.com/myaier/capibara.git:dashbord"]]);
   assert.deepEqual(hostCommand("install", { ...source, ref: "main" }), [["plugin", "add", source.reference, "--ref", "main"]]);
   assert.equal(displayCommand(hostCommand("install", { ...source, ref: "release/2.20" })![0]!), "paseo plugin add git:https://github.com/myaier/capibara.git:dashbord --ref release/2.20");
   assert.deepEqual(hostCommand("enable", null), [["plugin", "enable", "agent-observatory"]]);
   assert.deepEqual(hostCommand("upgrade", null), [["plugin", "update", "agent-observatory", "--yes"], ["plugin", "reload", "agent-observatory"]]);
   assert.equal(hostCommand("install", null), null);
+  const on = [["daemon", "config", "set", "pluginsEnabled", "true"], ["daemon", "reload"]], off = { pluginsEnabled: false, installed: true, enabled: true };
+  assert.deepEqual(hostCommand("plugins-on", null, off), on);
+  assert.deepEqual(hostCommand("plugins-on", null, { ...off, enabled: false }), [...on, ["plugin", "enable", "agent-observatory"]]);
+  assert.deepEqual(hostCommand("plugins-on", source, { ...off, installed: false, enabled: false }), [...on, ["plugin", "add", source.reference]]);
+  assert.equal(hostCommand("plugins-on", null, { ...off, installed: false, enabled: false }), null);
   for (const reference of ["git:https://example.com/a b.git", "git:https://example.com/$(id).git", "git:x;rm", "git:x&calc", "git:x|y", "git:%PATH%", "git:x^y", "git:'x'", "-x", "~/plugins", "git:x>y", "git:x`id`"]) {
     assert.equal(hostCommand("install", { reference, ref: null }), null, reference);
   }
@@ -228,5 +234,9 @@ test("the POSIX invocation runs each step with the CLI on PATH and fails as soon
     assert.deepEqual(await run(hostCommand("install", source)!, { add: 1 }), { result: "failed", calls: ["plugin add git:https://github.com/myaier/capibara.git:dashbord"] });
     assert.deepEqual(await run(hostCommand("upgrade", null)!, { update: 0, reload: 0 }), { result: "ok", calls: ["plugin update agent-observatory --yes", "plugin reload agent-observatory"] });
     assert.deepEqual(await run(hostCommand("upgrade", null)!, { update: 2, reload: 0 }), { result: "failed", calls: ["plugin update agent-observatory --yes"] });
+    const off = { pluginsEnabled: false, installed: true, enabled: false };
+    assert.deepEqual(await run(hostCommand("plugins-on", null, off)!, { config: 0, reload: 0, enable: 0 }),
+      { result: "ok", calls: ["daemon config set pluginsEnabled true", "daemon reload", "plugin enable agent-observatory"] });
+    assert.deepEqual(await run(hostCommand("plugins-on", null, off)!, { config: 0, reload: 1 }), { result: "failed", calls: ["daemon config set pluginsEnabled true", "daemon reload"] });
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

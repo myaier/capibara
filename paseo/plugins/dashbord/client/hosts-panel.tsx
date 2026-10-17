@@ -187,10 +187,11 @@ export function useHostsPanel({ pageHostId, pageHostLabel, ignored, onIgnoredCha
     catch (error) { setEntry(pendingUpdates, serverId, null); throw error; }
   };
   const commitFor = (serverId: string) => target?.commit ?? states.get(serverId)?.available?.commit ?? null;
-  const done: Record<HostCommandKind, MessageId> = { install: "hosts.installed", enable: "hosts.enabled", upgrade: "hosts.upgraded" };
+  const configOf = (serverId: string) => facts.find(fact => fact.host.serverId === serverId)?.config.value ?? null;
+  const done: Record<HostCommandKind, MessageId> = { install: "hosts.installed", enable: "hosts.enabled", upgrade: "hosts.upgraded", "plugins-on": "hosts.pluginsTurnedOn" };
   const startCommand = (serverId: string, kind: HostCommandKind) => {
     const name = label(serverId);
-    return runHostCommand(serverId, kind, source, commandDeps).then(result => {
+    return runHostCommand(serverId, kind, { source, config: configOf(serverId) }, commandDeps).then(result => {
       if (result === "ok") toast.show(t(done[kind], { host: name }), { variant: "success" });
       void cache.invalidateQueries({ queryKey: configQueryKey(serverId) });
     });
@@ -208,7 +209,7 @@ export function useHostsPanel({ pageHostId, pageHostLabel, ignored, onIgnoredCha
     checking: facts.some(fact => fact.update.state?.checking),
     label,
     /** The `paseo` invocations a command runs on its host, as the confirmation shows them; null when the source cannot be used. */
-    commandLines(kind: HostCommandKind) { const steps = hostCommand(kind, source); return steps ? steps.map(displayCommand) : null; },
+    commandLines(serverId: string, kind: HostCommandKind) { const steps = hostCommand(kind, source, configOf(serverId)); return steps ? steps.map(displayCommand) : null; },
     async refresh() {
       await Promise.all([
         ...updateIds.map(async serverId => { try { save(serverId, await getState(serverId, true)); } catch { /* the row shows the read error */ } }),
@@ -305,10 +306,10 @@ function RowProgress({ theme, since, phase, now }: { theme: PluginTheme; since: 
   </View>;
 }
 
-const failedLabel: Record<HostCommandKind, MessageId> = { install: "hosts.jobFailedInstall", enable: "hosts.jobFailedEnable", upgrade: "hosts.jobFailedUpgrade" };
-const runningLabel: Record<HostCommandKind, MessageId> = { install: "hosts.stateInstalling", enable: "hosts.stateEnabling", upgrade: "hosts.stateUpgrading" };
-const confirmLabel: Record<HostCommandKind, MessageId> = { install: "hosts.confirmInstall", enable: "hosts.confirmEnable", upgrade: "hosts.confirmUpgrade" };
-const actionLabel: Record<HostCommandKind, MessageId> = { install: "hosts.install", enable: "hosts.enable", upgrade: "hosts.upgrade" };
+const failedLabel: Record<HostCommandKind, MessageId> = { install: "hosts.jobFailedInstall", enable: "hosts.jobFailedEnable", upgrade: "hosts.jobFailedUpgrade", "plugins-on": "hosts.jobFailedPluginsOn" };
+const runningLabel: Record<HostCommandKind, MessageId> = { install: "hosts.stateInstalling", enable: "hosts.stateEnabling", upgrade: "hosts.stateUpgrading", "plugins-on": "hosts.statePluginsTurningOn" };
+const confirmLabel: Record<HostCommandKind, MessageId> = { install: "hosts.confirmInstall", enable: "hosts.confirmEnable", upgrade: "hosts.confirmUpgrade", "plugins-on": "hosts.confirmPluginsOn" };
+const actionLabel: Record<HostCommandKind, MessageId> = { install: "hosts.install", enable: "hosts.enable", upgrade: "hosts.upgrade", "plugins-on": "hosts.pluginsOn" };
 /** 「3 天前」 past a day, like the toolbar's other relative times within one. */
 function since(seenAt: string, now: number): string {
   const days = Math.floor((now - Date.parse(seenAt)) / 86_400_000);
@@ -355,7 +356,7 @@ function HostRowView({ theme, row, now, onCommand, onUpdate, onIgnore, onOpenTer
   onCommand: (kind: HostCommandKind) => void; onUpdate: () => void; onIgnore: (value: boolean) => void; onOpenTerminal?: () => void;
 }) {
   const { colors } = theme, status = rowStatus(row, now);
-  const kind: HostCommandKind | null = row.action === "install" || row.action === "enable" || row.action === "upgrade" ? row.action
+  const kind: HostCommandKind | null = row.action === "install" || row.action === "enable" || row.action === "upgrade" || row.action === "plugins-on" ? row.action
     : row.action === "retry-job" ? row.job?.kind ?? null : null;
   return <View testID={`host-row-${row.serverId}`} style={{ gap: space.xs + 2, paddingVertical: space.sm, borderTopWidth: hairline, borderTopColor: colors.border }}>
     <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
@@ -411,10 +412,11 @@ export function HostsDialog({ theme, open, onClose, panel, navigation }: { theme
     return <Dialog theme={theme} title={t("hosts.title")} onClose={onClose} footer={footer}>
       <Text style={{ color: colors.foreground, fontSize: fontSize.body }}>{t("hosts.confirmIntro")}</Text>
       {confirming.commands.map(command => {
-        const lines = panel.commandLines(command.kind);
+        const lines = panel.commandLines(command.serverId, command.kind);
         return <View key={command.serverId} style={{ gap: space.xs + 2 }}>
           <Text style={{ color: colors.foreground, fontSize: fontSize.small, fontWeight: "600" }}>{t(confirmLabel[command.kind], { host: panel.label(command.serverId) })}</Text>
           {lines ? <Mono theme={theme} lines={lines} /> : <Banner theme={theme} tone="warning" message={t("hosts.noSource")} />}
+          {command.kind === "plugins-on" ? <Text style={meta}>{t("hosts.confirmPluginsOnNote")}</Text> : null}
         </View>;
       })}
       {confirming.updates.length ? <Text style={{ color: colors.foreground, fontSize: fontSize.small, fontWeight: "600" }}>
@@ -426,7 +428,7 @@ export function HostsDialog({ theme, open, onClose, panel, navigation }: { theme
   const active = rows.filter(row => !row.ignored), ignored = rows.filter(row => row.ignored);
   const outdated = active.some(row => row.state === "outdated");
   const manual = active.find(row => row.state === "job-failed" && row.job && (row.job.result === "no-cli" || row.job.result === "no-workspace" || row.job.result === "error"));
-  const manualLines = manual?.job ? panel.commandLines(manual.job.kind) : null;
+  const manualLines = manual?.job ? panel.commandLines(manual.serverId, manual.job.kind) : null;
   const footer = plan.updates.length || plan.commands.length ? <>
     {outdated ? <Button theme={theme} label={t("hosts.later")} disabled={busy} onPress={() => { void panel.dismiss().catch(() => {}).finally(onClose); }} />
       : <Button theme={theme} label={t("hosts.close")} onPress={onClose} />}
