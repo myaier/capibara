@@ -1,6 +1,7 @@
 import { EntityHost, useFleet } from "./fleet-client";
 import { StatsFilters } from "./fleet-filters";
-import { FleetCoverageNotice } from "./fleet-status";
+import { FleetCoverageNotice, fleetCoverageIssues } from "./fleet-status";
+import { dismissNotices, expireDismissals, hasUndismissed } from "../shared/notices";
 import { isInternalAgent } from "../shared/internal-agents";
 import { t } from "../shared/text";
 import { LanguageSettings } from "./language-settings";
@@ -212,6 +213,13 @@ export function DashboardView({ theme, layout, host, navigation, workspaceId, in
   const settings = preferences.snapshot?.settings ?? defaultObservatorySettings;
   const hostsPanel = useHostsPanel({ pageHostId: host.id, pageHostLabel: host.label, ignored: settings.ignoredHosts ?? [],
     onIgnoredChange: next => { void preferences.mutate({ settings: { ignoredHosts: next } }).catch(() => toast.error(t("coreDashboard.settingsWereNotSavedTryAgain"))); } });
+  // ✕ on a notice hides it until its problems change (shared/notices.ts). Kept for this page even when saving the setting fails.
+  const [closedNotices, setClosedNotices] = useState<string[]>([]);
+  const dismissedNotices = useMemo(() => dismissNotices(settings.dismissedNotices ?? [], closedNotices), [settings.dismissedNotices, closedNotices]);
+  const dismiss = useCallback((keys: readonly string[]) => {
+    setClosedNotices(previous => dismissNotices(previous, keys));
+    void preferences.mutate({ settings: { dismissedNotices: dismissNotices(settings.dismissedNotices ?? [], keys) } }).catch(() => {});
+  }, [preferences.mutate, settings.dismissedNotices]);
   const attentionOf = useCallback((agent: AgentRecord) => needsAttention(agent, snoozedAt(agent), { childCompletions: settings.childCompletions }), [snoozedAt, settings.childCompletions]);
   // 待回复 counts the Agents waiting on your answer to a question; 待审批 the ones waiting on a permission or plan (opus-F12).
   const liveTally = useCallback((list: readonly AgentRecord[]) => { let attention = 0, approvals = 0, running = 0, unread = 0, snoozed = 0, idle = 0; for (const agent of list) { if (agent.hostOnline === false) continue; if (attentionOf(agent)) attention++; const waiting = agent.archivedAt ? null : waitingKind(agent); if (waiting && waiting !== "question") approvals++; if (matchesStatus(agent.status, "running")) running++; if (!agent.archivedAt && (waiting === "question" || (agent.status === "idle" && !agent.pendingPermissionCount))) idle++; if (isUnreadCompletion(agent)) { if (heldBySnooze(agent, snoozedAt(agent))) snoozed++; else unread++; } } return { attention, approvals, running, unread, snoozed, idle }; }, [attentionOf, snoozedAt]);
@@ -322,15 +330,29 @@ export function DashboardView({ theme, layout, host, navigation, workspaceId, in
   const savedViews = preferences.snapshot?.savedViews ?? [];
   const sessionsTab = tab === "agents", listTab = tab === "agents" || tab === "activity";
   const archiveSummary = useMemo(() => { const worktrees = new Set(scoped.filter(a => a.checkoutKind === "worktree").map(a => a.worktreePath)).size; return [t("coreDashboard.sessions", { count: scoped.length }), t("coreDashboard.projects", { count: new Set(scoped.map(projectKey)).size }), worktrees ? t("coreDashboard.worktrees", { count: worktrees }) : null].filter(Boolean).join(" · "); }, [scoped]);
+  const syncKeys = (data.failedHosts ?? []).map(id => `sync:${id}`);
+  const noticeKeys = { truncated: ["truncated"], telemetry: ["telemetry"], persist: [`persist:${telemetry?.persistenceError ?? ""}`], receipts: ["receipts"], preferences: ["preferences"] };
+  const shown = (keys: readonly string[]) => hasUndismissed(keys, dismissedNotices);
+  // Every problem present now, on any tab, so a closed one is only forgotten once it is really gone.
+  const activeNotices = new Set([...(fleet ? fleetCoverageIssues(fleet.hosts, fleet.coverage).keys : []), ...(data.error ? syncKeys : []), ...(data.truncated ? noticeKeys.truncated : []),
+    ...(telemetryError ? noticeKeys.telemetry : []), ...(telemetry?.persistenceError ? noticeKeys.persist : []), ...(readReceiptError ? noticeKeys.receipts : []), ...(preferences.error ? noticeKeys.preferences : [])]);
+  const activeSignature = [...activeNotices].sort().join("\n");
+  const clearSince = useRef(new Map<string, number>());
+  useEffect(() => {
+    const persisted = settings.dismissedNotices ?? [];
+    if (!preferences.ready || !persisted.length) return;
+    const sweep = () => { const kept = expireDismissals(persisted, activeNotices, clearSince.current, Date.now()); if (kept) { setClosedNotices(previous => previous.filter(key => kept.includes(key))); void preferences.mutate({ settings: { dismissedNotices: kept } }).catch(() => {}); } };
+    sweep(); const timer = setInterval(sweep, 60_000); return () => clearInterval(timer);
+  }, [preferences.ready, settings.dismissedNotices, activeSignature]);
   const banners = [
-    <FleetCoverageNotice key="fleet" theme={theme} methods={tab === "tokens" ? ["observatory.tokens.get", "observatory.tokens.live", "observatory.quota.get"] : tab === "board" ? ["observatory.stats.get", "observatory.tokens.get", "observatory.quota.get"] : tab === "compare" || tab === "analytics" ? [observing ? "observatory.analytics.get" : "observatory.stats.get"] : ["observatory.telemetry.get", "observatory.read-state.list", "observatory.background.get", "observatory.tokens.live"]} />,
-    data.error && data.agents.length ? <Banner key="sync" theme={theme} tone="danger" message={t("coreDashboard.syncFailedShowingThePreviousResults", { value1: String(data.error) })} action={{ label: t("coreDashboard.retry"), onPress: onRefresh }} /> : null,
-    data.truncated ? <Banner key="truncated" theme={theme} message={t("coreDashboard.onlySomeSessionsAreLoadedBecauseThere")} /> : null,
-    telemetryError ? <Banner key="telemetry" theme={theme} tone="warning" message={t("coreDashboard.eventHistoryIsTemporarilyUnavailableSessionStatus")} /> : null,
+    <FleetCoverageNotice key="fleet" theme={theme} dismissed={dismissedNotices} onDismiss={dismiss} methods={tab === "tokens" ? ["observatory.tokens.get", "observatory.tokens.live", "observatory.quota.get"] : tab === "board" ? ["observatory.stats.get", "observatory.tokens.get", "observatory.quota.get"] : tab === "compare" || tab === "analytics" ? [observing ? "observatory.analytics.get" : "observatory.stats.get"] : ["observatory.telemetry.get", "observatory.read-state.list", "observatory.background.get", "observatory.tokens.live"]} />,
+    data.error && data.agents.length && shown(syncKeys) ? <Banner key="sync" theme={theme} tone="danger" message={t("coreDashboard.syncFailedShowingThePreviousResults", { value1: String(data.error) })} action={{ label: t("coreDashboard.retry"), onPress: onRefresh }} onDismiss={() => dismiss(syncKeys)} /> : null,
+    data.truncated && shown(noticeKeys.truncated) ? <Banner key="truncated" theme={theme} message={t("coreDashboard.onlySomeSessionsAreLoadedBecauseThere")} onDismiss={() => dismiss(noticeKeys.truncated)} /> : null,
+    telemetryError && shown(noticeKeys.telemetry) ? <Banner key="telemetry" theme={theme} tone="warning" message={t("coreDashboard.eventHistoryIsTemporarilyUnavailableSessionStatus")} onDismiss={() => dismiss(noticeKeys.telemetry)} /> : null,
     // The server says in one Chinese sentence whether saving failed or the saved history could not be read back (opus-F74).
-    telemetry?.persistenceError ? <Banner key="persist" theme={theme} tone="warning" message={telemetry.persistenceError} /> : null,
-    readReceiptError ? <Banner key="receipts" theme={theme} tone="warning" message={t("coreDashboard.readStatusSyncError", { value1: readReceiptError })} /> : null,
-    preferences.error ? <Banner key="preferences" theme={theme} tone="warning" message={t("coreDashboard.cannotSaveView", { value1: preferences.error })} /> : null,
+    telemetry?.persistenceError && shown(noticeKeys.persist) ? <Banner key="persist" theme={theme} tone="warning" message={telemetry.persistenceError} onDismiss={() => dismiss(noticeKeys.persist)} /> : null,
+    readReceiptError && shown(noticeKeys.receipts) ? <Banner key="receipts" theme={theme} tone="warning" message={t("coreDashboard.readStatusSyncError", { value1: readReceiptError })} onDismiss={() => dismiss(noticeKeys.receipts)} /> : null,
+    preferences.error && shown(noticeKeys.preferences) ? <Banner key="preferences" theme={theme} tone="warning" message={t("coreDashboard.cannotSaveView", { value1: preferences.error })} onDismiss={() => dismiss(noticeKeys.preferences)} /> : null,
   ].filter(Boolean);
   // 归档已读完成 (opus-B18): completed sessions whose result was read, with nothing running above or below them and no heartbeat
   // or limit to come back for. Paseo completes an Agent's heartbeats when it is archived, so only a heartbeat read that covered every

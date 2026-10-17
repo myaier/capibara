@@ -26,6 +26,8 @@ export const observatorySettingsSchema = z.object({
   childCompletions: z.boolean(),
   /** Hosts the person chose not to manage from the 主机 panel: no prompt, left out of 全部同步. Older servers drop it. */
   ignoredHosts: z.array(z.string().min(1).max(256)).max(64).optional(),
+  /** Notices closed with ✕, by problem (see shared/notices.ts). Older servers drop it. */
+  dismissedNotices: z.array(z.string().min(1).max(512)).max(64).optional(),
 });
 export const defaultObservatorySettings: ObservatorySettings = { childCompletions: false };
 export const preferencesSnapshotSchema = z.object({
