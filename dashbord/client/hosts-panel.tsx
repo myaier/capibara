@@ -24,9 +24,10 @@ const SETTLE_MS = 10_000;
 const REMEMBER_MS = 10 * 60_000;
 
 // Module scope, not component state: closing the dialog or the panel keeps following updates it started.
-type Pending = { commit: string; startedAt: number; label: string };
+type Pending = { commit: string; startedAt: number; label: string; queued?: boolean };
 const pendingUpdates = createStore<ReadonlyMap<string, Pending>>(new Map());
-const onlineSince = new Map<string, number>();
+/** Since when each online host has had no registered installation; hosts with one, or offline, have no entry. */
+const waitingSince = new Map<string, number>();
 const announced = new Set<string>();
 
 /**
@@ -64,10 +65,14 @@ export function useHostsPanel({ pageHostId, pageHostLabel, ignored, onIgnoredCha
   const nativeGet = useRpc(getUpdate), nativeApply = useRpc(applyUpdate), nativeDismiss = useRpc(dismissUpdate);
   const readMemory = useRpc(getHostMemory), writeMemory = useRpc(rememberHosts);
   const [, setTick] = useState(0);
+  const memory = useQuery({ queryKey: ["agent-observatory", pageHostId, "host-memory"], queryFn: () => readMemory({}), enabled: foreground, retry: 0, staleTime: Infinity });
   const hosts = useMemo(() => {
     const all = listed.some(host => host.serverId === pageHostId) ? [...listed] : [{ serverId: pageHostId, label: pageHostLabel, status: "online" as const }, ...listed];
-    return all.sort((a, b) => Number(b.serverId === pageHostId) - Number(a.serverId === pageHostId) || a.label.localeCompare(b.label));
-  }, [listed, pageHostId, pageHostLabel]);
+    // A client that only knows a host by its pairing offer labels it with the server ID; the installation and memory know its name.
+    const names = new Map([...(memory.data?.hosts ?? []).map(entry => [entry.serverId, entry.label] as const), ...peers.map(peer => [peer.identity.serverId, peer.identity.hostname] as const)]);
+    return all.map(host => host.label && host.label !== host.serverId ? host : { ...host, label: names.get(host.serverId) || host.label })
+      .sort((a, b) => Number(b.serverId === pageHostId) - Number(a.serverId === pageHostId) || a.label.localeCompare(b.label));
+  }, [listed, pageHostId, pageHostLabel, peers, memory.data]);
   const registered = useMemo(() => new Map(peers.map(peer => [peer.identity.serverId, peer.identity.version])), [peers]);
   const isRegistered = (serverId: string) => serverId === pageHostId || registered.has(serverId);
   const getState = useCallback((serverId: string, refresh: boolean) =>
@@ -83,18 +88,18 @@ export function useHostsPanel({ pageHostId, pageHostLabel, ignored, onIgnoredCha
     queryKey: configQueryKey(serverId), queryFn: () => readPluginState(serverId), enabled: foreground, retry: 0, staleTime: 15_000,
     refetchOnWindowFocus: false, refetchInterval: foreground ? 60_000 : false as const,
   })) });
-  const memory = useQuery({ queryKey: ["agent-observatory", pageHostId, "host-memory"], queryFn: () => readMemory({}), enabled: foreground, retry: 0, staleTime: Infinity });
 
-  // A host that just connected may still be starting its installation; give it time before calling it not running.
+  // A host that just connected may still be starting its installation; give it time before calling it not running. So may one whose
+  // installation just left the registry: an update or reload started elsewhere restarts it.
   const onlineKey = hosts.map(host => `${host.serverId}:${host.status}:${isRegistered(host.serverId)}`).join("|");
   useEffect(() => {
     const now = Date.now();
     for (const host of hosts) {
-      if (host.status !== "online") onlineSince.delete(host.serverId);
-      else if (!onlineSince.has(host.serverId)) onlineSince.set(host.serverId, now);
+      if (host.status !== "online" || isRegistered(host.serverId)) waitingSince.delete(host.serverId);
+      else if (!waitingSince.has(host.serverId)) waitingSince.set(host.serverId, now);
     }
     const waits = hosts.filter(host => host.status === "online" && !isRegistered(host.serverId))
-      .map(host => onlineSince.get(host.serverId)! + SETTLE_MS - now).filter(wait => wait > 0);
+      .map(host => waitingSince.get(host.serverId)! + SETTLE_MS - now).filter(wait => wait > 0);
     setTick(value => value + 1);
     if (!waits.length) return;
     const timer = setTimeout(() => setTick(value => value + 1), Math.min(...waits) + 50);
@@ -102,15 +107,18 @@ export function useHostsPanel({ pageHostId, pageHostLabel, ignored, onIgnoredCha
   }, [onlineKey]);
 
   const remembered = useMemo(() => new Map((memory.data?.hosts ?? []).map(entry => [entry.serverId, entry])), [memory.data]);
+  // Another host's answer counts only once it checked its source after this page did (see refresh below).
+  const pageCheckedAt = Date.parse(updates[updateIds.indexOf(pageHostId)]?.data?.checkedAt ?? "") || 0;
   const facts: HostFacts[] = hosts.map(host => {
-    const update = updates[updateIds.indexOf(host.serverId)], config = configs[configIds.indexOf(host.serverId)], since = onlineSince.get(host.serverId);
+    const update = updates[updateIds.indexOf(host.serverId)], config = configs[configIds.indexOf(host.serverId)], since = waitingSince.get(host.serverId);
     return { host, page: host.serverId === pageHostId,
       registered: registered.has(host.serverId) ? { version: registered.get(host.serverId)! } : host.serverId === pageHostId ? { version: OBSERVATORY_VERSION } : null,
       update: { state: update?.data ?? null, error: update?.error ? message(update.error) : null },
       config: { value: config?.data ?? null, error: config?.error ? message(config.error) : null },
       memory: remembered.get(host.serverId) ?? null,
       job: jobs.get(host.serverId) ?? null, pending: pending.get(host.serverId) ?? null, ignored: ignored.includes(host.serverId),
-      settled: since !== undefined && Date.now() - since >= SETTLE_MS };
+      settled: since !== undefined && Date.now() - since >= SETTLE_MS,
+      stale: host.serverId !== pageHostId && !!update?.data && (!update.data.checkedAt || Date.parse(update.data.checkedAt) < pageCheckedAt) };
   });
   const target = syncTarget(facts), rows = facts.map(fact => hostRow(fact, target));
   const states = new Map(facts.map(fact => [fact.host.serverId, fact.update.state]));
@@ -142,6 +150,18 @@ export function useHostsPanel({ pageHostId, pageHostLabel, ignored, onIgnoredCha
     void writeMemory({ hosts: seen }).then(next => cache.setQueryData(["agent-observatory", pageHostId, "host-memory"], next)).catch(() => {}).finally(() => { writing.current = false; });
   }, [seenKey, memory.data, epoch]);
 
+  // A host whose last check predates the page's (it was offline, or just connected) is asked to check again, once per target.
+  const refreshed = useRef(new Set<string>());
+  const staleKey = facts.filter(fact => fact.stale && !fact.update.state?.checking).map(fact => fact.host.serverId).join("|") + `@${target?.commit ?? ""}`;
+  useEffect(() => {
+    for (const fact of facts) {
+      const key = `${fact.host.serverId}@${target?.commit ?? ""}`;
+      if (!fact.stale || fact.update.state?.checking || refreshed.current.has(key)) continue;
+      refreshed.current.add(key);
+      void getState(fact.host.serverId, true).then(next => save(fact.host.serverId, next)).catch(() => {});
+    }
+  }, [staleKey]);
+
   // An update this client started is done when its host runs the revision; the page announces its own restart once.
   const stateKey = facts.map(fact => `${fact.host.serverId}:${fact.update.state?.revision}:${fact.update.state?.updating?.error ?? ""}:${fact.update.state?.justUpdated?.commit ?? ""}`).join("|");
   useEffect(() => {
@@ -170,7 +190,7 @@ export function useHostsPanel({ pageHostId, pageHostLabel, ignored, onIgnoredCha
   const done: Record<HostCommandKind, MessageId> = { install: "hosts.installed", enable: "hosts.enabled", upgrade: "hosts.upgraded" };
   const startCommand = (serverId: string, kind: HostCommandKind) => {
     const name = label(serverId);
-    void runHostCommand(serverId, kind, source, commandDeps).then(result => {
+    return runHostCommand(serverId, kind, source, commandDeps).then(result => {
       if (result === "ok") toast.show(t(done[kind], { host: name }), { variant: "success" });
       void cache.invalidateQueries({ queryKey: configQueryKey(serverId) });
     });
@@ -178,7 +198,8 @@ export function useHostsPanel({ pageHostId, pageHostLabel, ignored, onIgnoredCha
   /** Overall progress of the updates and commands running now, for the toolbar entry. */
   const progress = (() => {
     const now = Date.now(), parts = rows.flatMap(row => row.state === "updating" && row.updatingSince !== null ? [estimateUpdateProgress(now - row.updatingSince, row.phase ?? "building")]
-      : row.state === "job-running" && row.job ? [estimateUpdateProgress(now - row.job.startedAt, "building")] : row.state === "job-waiting" ? [0.9] : row.state === "updating" ? [0.04] : []);
+      : row.state === "job-running" && row.job ? [estimateUpdateProgress(now - row.job.startedAt, "building")] : row.state === "job-waiting" ? [0.9]
+      : row.state === "updating" || row.state === "queued" ? [0.04] : []);
     return parts.length ? parts.reduce((sum, part) => sum + part, 0) / parts.length : null;
   })();
   return {
@@ -194,13 +215,23 @@ export function useHostsPanel({ pageHostId, pageHostLabel, ignored, onIgnoredCha
         ...configIds.map(serverId => cache.invalidateQueries({ queryKey: configQueryKey(serverId) })),
       ]);
     },
-    /** Commands start at once; updates go out one by one with the page's own last, since applying it restarts this panel. */
+    /**
+     * Commands start at once; updates go out one by one with the page's own last, since applying it restarts this panel. The
+     * restart would also end this client's follow-up of commands still running elsewhere (their result, toast and terminal
+     * cleanup), so the page's own update waits for them and runs in the background.
+     */
     async sync(request: { updates: readonly string[]; commands: ReadonlyArray<{ serverId: string; kind: HostCommandKind }> }): Promise<string[]> {
-      for (const command of request.commands) startCommand(command.serverId, command.kind);
+      const commands = request.commands.map(command => startCommand(command.serverId, command.kind));
       const errors: string[] = [];
       for (const serverId of [...request.updates].sort((a, b) => Number(a === pageHostId) - Number(b === pageHostId))) {
         const commit = commitFor(serverId);
         if (!commit) continue;
+        if (serverId === pageHostId && commands.length) {
+          setEntry(pendingUpdates, serverId, { commit, startedAt: Date.now(), label: label(serverId), queued: true });
+          void Promise.allSettled(commands).then(() => applyOn(serverId, commit))
+            .catch(error => toast.error(t("hosts.applyFailed", { host: label(serverId), error: message(error) })));
+          continue;
+        }
         try { await applyOn(serverId, commit); } catch (error) { errors.push(t("hosts.applyFailed", { host: label(serverId), error: message(error) })); }
       }
       return errors;
@@ -299,6 +330,7 @@ function rowStatus(row: HostRow, now: number): string {
     case "job-running": return t(runningLabel[row.job!.kind], { seconds: Math.max(0, Math.round((now - row.job!.startedAt) / 1000)) });
     case "job-waiting": return t("hosts.stateWaiting");
     case "job-failed": return t(failedLabel[row.job!.kind], { reason: row.error ?? "" });
+    case "queued": return t("hosts.stateQueued");
     case "updating": return t("hosts.stateUpdating");
     case "update-failed": return t("hosts.stateUpdateFailed", { error: row.error ?? "" });
     case "outdated": return t(row.dismissed ? "hosts.stateDismissed" : "hosts.stateOutdated", { version });
@@ -311,7 +343,7 @@ function rowTone(row: HostRow): Tone {
   switch (row.state) {
     case "current": return "success";
     case "offline": return row.pendingSync ? "warning" : "neutral";
-    case "connecting": case "checking": case "updating": case "job-running": case "job-waiting": return "info";
+    case "connecting": case "checking": case "queued": case "updating": case "job-running": case "job-waiting": return "info";
     case "job-failed": case "update-failed": case "check-failed": return "danger";
     default: return "warning";
   }

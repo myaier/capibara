@@ -75,17 +75,19 @@ export interface HostFacts {
   config: { value: HostPluginConfig | null; error: string | null };
   memory: HostMemory | null;
   job: HostJob | null;
-  /** An update this client started there and still follows. */
-  pending: { commit: string; startedAt: number } | null;
+  /** An update this client started there and still follows; `queued` while it waits for commands on other hosts. */
+  pending: { commit: string; startedAt: number; queued?: boolean } | null;
   ignored: boolean;
   /** The installation that serves this page: updated last, because updating it reloads the panel. */
   page: boolean;
   /** Online long enough that an installed, enabled plugin should have registered. */
   settled: boolean;
+  /** Its last check of its source predates the page's: an offer that differs from the target may just be out of date. */
+  stale?: boolean;
 }
 
 export type HostRowState = "offline" | "connecting" | "checking" | "plugins-off" | "missing" | "disabled" | "too-old"
-  | "job-running" | "job-waiting" | "job-failed" | "updating" | "update-failed" | "outdated" | "diverged" | "check-failed" | "current";
+  | "job-running" | "job-waiting" | "job-failed" | "queued" | "updating" | "update-failed" | "outdated" | "diverged" | "check-failed" | "current";
 export type HostRowAction = "install" | "enable" | "upgrade" | "update" | "retry-job" | "retry-update";
 export interface HostRow {
   serverId: string; label: string; state: HostRowState; action: HostRowAction | null;
@@ -138,6 +140,7 @@ export function hostRow(fact: HostFacts, target: SyncTarget | null): HostRow {
   // An update restarts the installation, which leaves the registry until the new revision registers.
   if (!fact.registered && fact.pending) return row("updating");
   if (fact.registered) {
+    if (fact.pending?.queued) return row("queued");
     // Installations before the update RPC are upgraded from their command line.
     if (compareVersions(fact.registered.version, MIN_UPDATE_RPC_VERSION) < 0) return row("too-old", "upgrade");
     if (!state) return fact.update.error ? row("check-failed", null, fact.update.error) : row("checking");
@@ -146,6 +149,8 @@ export function hostRow(fact: HostFacts, target: SyncTarget | null): HostRow {
     if (!target) return state.available ? row("outdated", "update") : row(state.error ? "check-failed" : "current", null, state.error);
     if (state.revision === target.commit) return row("current");
     if (state.available?.commit === target.commit) return row("outdated", "update");
+    // A check still running, or older than the one that set the target, cannot tell another source from a stale answer.
+    if (state.checking || fact.stale) return row("checking");
     return row(state.error ? "check-failed" : "diverged", null, state.error);
   }
   if (job?.state === "waiting") return row("job-waiting");
@@ -163,7 +168,7 @@ export function hostRow(fact: HostFacts, target: SyncTarget | null): HostRow {
 
 /** Rows needing a decision; ignored hosts never prompt. */
 const ATTENTION: readonly HostRowState[] = ["missing", "disabled", "too-old", "outdated", "update-failed", "job-failed"];
-const BUSY: readonly HostRowState[] = ["updating", "job-running", "job-waiting"];
+const BUSY: readonly HostRowState[] = ["queued", "updating", "job-running", "job-waiting"];
 export function hostSummary(rows: readonly HostRow[]) {
   const active = rows.filter(row => !row.ignored);
   return {
@@ -223,12 +228,14 @@ const RESULT_MARK = "__OBSERVATORY_HOST_COMMAND__";
  * An explicit shell, so the outcome line has one syntax: cmd.exe on Windows (PowerShell may resolve `paseo.ps1` and stop at
  * the execution policy; `call` returns from a `paseo.cmd` shim), `/bin/sh` elsewhere. When `paseo` is not on the daemon's PATH,
  * sh also asks the login shell and tries the usual install locations, including the CLI inside Paseo.app.
+ * The shell stays open afterwards (`cmd /k`, an interactive login shell): Paseo discards a terminal whose process exited, with
+ * its output, so the outcome line could not be read. The client closes the terminal after a success.
  */
 export function terminalInvocation(platform: HostPlatform, steps: readonly (readonly string[])[]): { command: string; args: string[] } {
   const lines = steps.map(args => args.join(" "));
   if (platform === "windows") {
     const chain = lines.map(line => `call paseo ${line}`).join(" && ");
-    return { command: "cmd.exe", args: ["/d", "/s", "/c", `where paseo >nul 2>nul && ((${chain}) && echo ${RESULT_MARK} ok || echo ${RESULT_MARK} failed) || echo ${RESULT_MARK} no-cli`] };
+    return { command: "cmd.exe", args: ["/d", "/s", "/k", `where paseo >nul 2>nul && ((${chain}) && echo ${RESULT_MARK} ok || echo ${RESULT_MARK} failed) || echo ${RESULT_MARK} no-cli`] };
   }
   const candidates = ['"$HOME/.local/bin/paseo"', "/opt/homebrew/bin/paseo", "/usr/local/bin/paseo", "/Applications/Paseo.app/Contents/Resources/bin/paseo"].join(" ");
   return { command: "/bin/sh", args: ["-c", [
@@ -236,10 +243,9 @@ export function terminalInvocation(platform: HostPlatform, steps: readonly (read
     `if [ -z "$P" ] && [ -n "$SHELL" ]; then P=$("$SHELL" -lc 'command -v paseo' 2>/dev/null | tail -n 1); fi`,
     `if [ -n "$P" ] && [ ! -x "$P" ]; then P=; fi`,
     `for C in ${candidates}; do [ -n "$P" ] && break; [ -x "$C" ] && P=$C; done`,
-    `if [ -z "$P" ]; then echo "${RESULT_MARK} no-cli"; exit 127; fi`,
-    ...lines.map(line => `echo "+ paseo ${line}"`),
-    `if ${lines.map(line => `"$P" ${line}`).join(" && ")}; then R=ok; else R=failed; fi`,
+    `if [ -z "$P" ]; then R=no-cli; else ${lines.map(line => `echo "+ paseo ${line}"`).join("; ")}; if ${lines.map(line => `"$P" ${line}`).join(" && ")}; then R=ok; else R=failed; fi; fi`,
     `echo "${RESULT_MARK} $R"`,
+    `exec "\${SHELL:-/bin/sh}" -il`,
   ].join("; ")] };
 }
 /** The outcome line the invocation prints last, or null while the command still runs. */

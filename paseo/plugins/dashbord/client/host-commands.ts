@@ -24,6 +24,8 @@ export interface CommandHost {
   workspaces: { list(): Promise<{ entries: ReadonlyArray<{ id: string; workspaceDirectory?: string; projectRootPath?: string; archivingAt?: string | null }> }> };
   terminals: { create(options: { workspaceId: string; name?: string; command?: string; args?: string[] }): Promise<{
     readonly id: string; capture(options?: { stripAnsi?: boolean }): Promise<{ lines: string[] }>; kill(): Promise<void>;
+    /** The terminal, or null once Paseo discarded it (its process exited). */
+    refresh(): Promise<unknown>;
   }> };
 }
 export interface CommandDeps {
@@ -65,6 +67,8 @@ export async function runHostCommand(serverId: string, kind: HostCommandKind, so
       await deps.sleep(POLL_MS);
       if (!mine()) return "error";
       const lines = (await terminal.capture({ stripAnsi: true })).lines, output = outputTail(lines), result = commandResult(lines);
+      // Paseo drops a terminal whose process ended, output and all; without an outcome line there is nothing left to wait for.
+      if (!lines.length && !await terminal.refresh().catch(() => null)) return fail("error", t("hosts.terminalGone"), jobs.get().get(serverId)?.output ?? []);
       if (result === "ok") { update({ state: "waiting", result, output }); break; }
       if (result) return fail(result, t(result === "no-cli" ? "hosts.noCli" : "hosts.commandFailed"), output);
       update({ output });

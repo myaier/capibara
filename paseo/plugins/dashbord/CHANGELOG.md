@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.20.0-dev.3 · Capibara · 2026-10-17
+
+Fixes from the Hosts panel's first run on two real machines:
+
+- Install, enable and upgrade no longer hang at "Installing…" forever. Paseo discards a terminal whose process has ended, output included, so the outcome line could not be read; the command's shell now stays open until the panel has read it (a success then closes the terminal), and a terminal that disappears early is reported at once.
+- **Sync all** updates this page's own host only after commands on other hosts have finished. Its restart reloads the panel, which would have dropped their follow-up and left their terminals open; meanwhile the row says it is waiting.
+- A host whose last update check predates this page's is asked to check again instead of being shown as having a different source or target.
+- A host this client knows only by its server ID is shown with its own host name.
+- A host whose installation restarts from elsewhere (an update or reload not started in this panel) is given the same time to come back as a host that just connected, instead of flashing "too old or failing to start" with **Upgrade**.
+
 ## 2.20.0-dev.2 · Capibara · 2026-10-17
 
 - Session rows, the session detail header and the project filter wear the project's own Paseo color and icon: the same ten identity colors, the same hash over the same project view key, and the favicon / logo the host discovered or the user uploaded, read from each host's project list. Fleet rows resolve the host from the host-qualified project id. Projects the host does not know keep the previous name-hash color.

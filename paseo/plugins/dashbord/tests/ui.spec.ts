@@ -179,8 +179,11 @@ test("hosts: every connected host is listed with its state; 全部同步 install
   const dialog = page.getByRole("dialog", { name: "主机", exact: true });
   const mac = dialog.getByTestId("host-row-mac"), win = dialog.getByTestId("host-row-win"), build = dialog.getByTestId("host-row-build"), old = dialog.getByTestId("host-row-old");
   await expect(mac).toContainText("MacBook Pro"); await expect(mac).toContainText("当前页面"); await expect(mac).toContainText("v2.18.0-dev.10 · 可更新");
+  // Known to this client only by its server ID, Windows is shown with its own host name; its stale answer was checked again.
+  await expect(win).toContainText("WIN-DEMO-PC");
   await expect(win).toContainText("v2.18.0-dev.10 · 可更新");
   await expect(win.getByRole("button", { name: "更新", exact: true })).toBeVisible();
+  expect(await page.evaluate(() => (globalThis as any).__previewFleetCalls.some((call: any) => call.host === "win" && call.method === "observatory.update.get" && call.input.refresh === true))).toBeTruthy();
   await expect(build).toContainText("未安装");
   await expect(build.getByRole("button", { name: "安装", exact: true })).toBeVisible();
   await expect(old).toContainText("v2.18.0-dev.10 · 离线（3 天前） · 待同步");
@@ -198,10 +201,13 @@ test("hosts: every connected host is listed with its state; 全部同步 install
   expect(await page.evaluate(() => (globalThis as any).__previewTerminals.length)).toBe(0);
   expect(await page.evaluate(() => (globalThis as any).__previewUpdateApplies ?? [])).toEqual([]);
   await dialog.getByRole("button", { name: "确认执行", exact: true }).click();
+  // This page updates only after the command on BUILD-DEMO finished, so its restart cannot cut that command's follow-up.
+  await expect(mac).toContainText("等其他主机处理完再更新");
+  expect(await page.evaluate(() => (globalThis as any).__previewUpdateApplies?.map((apply: { host: string }) => apply.host))).toEqual(["win"]);
   await expect.poll(() => page.evaluate(() => (globalThis as any).__previewUpdateApplies?.map((apply: { host: string }) => apply.host))).toEqual(["win", "mac"]);
   const terminal = await page.evaluate(() => (globalThis as any).__previewTerminals[0].options);
   expect(terminal.workspaceId).toBe("ws-build"); expect(terminal.command).toBe("cmd.exe");
-  expect(terminal.args.slice(0, 3)).toEqual(["/d", "/s", "/c"]);
+  expect(terminal.args.slice(0, 3)).toEqual(["/d", "/s", "/k"]);
   expect(terminal.args[3]).toContain("((call paseo plugin add git:https://github.com/myaier/capibara.git:dashbord) && echo __OBSERVATORY_HOST_COMMAND__ ok");
   await expect(toast(page, "已在 BUILD-DEMO 上安装观测台")).toBeVisible({ timeout: 10_000 });
   await expect(build).toContainText("v2.18.0-dev.11 · 最新", { timeout: 10_000 });
@@ -253,6 +259,21 @@ test("hosts: an installed observatory that never starts is offered an upgrade on
   await expect(dialog.getByText("paseo plugin reload agent-observatory", { exact: true })).toBeVisible();
   await dialog.getByRole("button", { name: "确认执行", exact: true }).click();
   await expect(toast(page, "BUILD-DEMO 上的观测台已升级")).toBeVisible({ timeout: 10_000 });
+});
+
+test("hosts: an installation restarted from elsewhere is given time to come back instead of being offered an upgrade", async ({ page }, testInfo) => {
+  await open(page, testInfo, "fleet-hosts");
+  await page.getByTestId("hosts-chip").click();
+  const win = page.getByRole("dialog", { name: "主机", exact: true }).getByTestId("host-row-win");
+  await expect(win).toContainText("v2.18.0-dev.10 · 可更新");
+  // Online for longer than a host that just connected is given, so only its restart can explain the wait.
+  await page.waitForTimeout(10_500);
+  await page.evaluate(() => (globalThis as any).__previewRestartHost("win", 3_000));
+  await expect(win).toContainText("正在检查…");
+  const seen = new Set<string>();
+  await expect.poll(async () => { const text = (await win.innerText()).replace(/\s+/g, " "); seen.add(text); return text; }, { timeout: 15_000, intervals: [100] })
+    .toContain("v2.18.0-dev.10 · 可更新");
+  expect([...seen].filter(text => /版本过旧|升级/.test(text))).toEqual([]);
 });
 
 test("hosts: a host with plugins turned off says so and offers no command", async ({ page }, testInfo) => {

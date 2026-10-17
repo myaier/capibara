@@ -4,7 +4,7 @@ import { createStore, runHostCommand, type CommandDeps, type CommandHost } from 
 import type { HostJob } from "../shared/hosts";
 
 const source = { reference: "git:https://github.com/myaier/capibara.git:dashbord", ref: null };
-function fixture(options: { directory?: string | null; outputs?: string[][]; registered?: boolean; clock?: { now: number; step: number } } = {}) {
+function fixture(options: { directory?: string | null; outputs?: string[][]; registered?: boolean; clock?: { now: number; step: number }; gone?: boolean } = {}) {
   const jobs = createStore<ReadonlyMap<string, HostJob>>(new Map());
   const created: Array<{ workspaceId: string; name?: string; command?: string; args?: string[] }> = [], killed: string[] = [], acquired: string[] = [];
   const outputs = [...(options.outputs ?? [["+ paseo plugin add"], ["+ paseo plugin add", "Installed agent-observatory", "__OBSERVATORY_HOST_COMMAND__ ok"]])];
@@ -12,7 +12,9 @@ function fixture(options: { directory?: string | null; outputs?: string[][]; reg
   const host: CommandHost = {
     workspaces: { list: async () => ({ entries: options.directory === null ? [] : [{ id: "ws_demo", workspaceDirectory: options.directory ?? "/Users/<name>/project", archivingAt: null }] }) },
     terminals: { create: async created_ => { created.push(created_); return { id: "term_demo",
-      capture: async () => ({ lines: (last = outputs.shift() ?? last) }), kill: async () => { killed.push("term_demo"); } }; } },
+      capture: async () => ({ lines: (last = outputs.shift() ?? last) }), kill: async () => { killed.push("term_demo"); },
+      // Paseo returns no terminal once its process exited.
+      refresh: async () => options.gone ? null : { id: "term_demo" } }; } },
   };
   const clock = options.clock ?? { now: 1_000, step: 1_500 };
   const deps: CommandDeps = { acquire: id => { acquired.push(id); return host; }, registered: async () => options.registered ?? true,
@@ -78,4 +80,11 @@ test("a command that never reports, or an installation that never starts, ends a
   const stalled = fixture({ registered: false });
   assert.equal(await runHostCommand("srv_demo_build", "upgrade", null, stalled.deps, stalled.jobs), "not-running");
   assert.equal(stalled.jobs.get().get("srv_demo_build")?.state, "failed");
+});
+
+test("a terminal that disappears before reporting ends the command at once instead of waiting out the timeout", async () => {
+  const f = fixture({ outputs: [["+ paseo plugin enable agent-observatory"], []], gone: true });
+  assert.equal(await runHostCommand("srv_demo_build", "enable", null, f.deps, f.jobs), "error");
+  const job = f.jobs.get().get("srv_demo_build")!;
+  assert.deepEqual([job.state, job.result, job.output], ["failed", "error", ["+ paseo plugin enable agent-observatory"]]);
 });
