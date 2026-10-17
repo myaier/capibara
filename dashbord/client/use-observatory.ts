@@ -71,13 +71,14 @@ export function useObservatory({ includeArchived }: { includeArchived: boolean }
   useEffect(() => fleet ? undefined : retain(paseo, includeArchived, entry), [paseo, includeArchived, entry, !!fleet]);
   const state = useSyncExternalStore(entry.directory.subscribe, entry.directory.getSnapshot, entry.directory.getSnapshot);
   return useMemo(() => {
-    if (!fleet) return { ...state, refresh: entry.directory.refresh };
+    if (!fleet) return { ...state, failedHosts: state.error ? ["local"] : [], refresh: entry.directory.refresh };
     const hosts = multi.hosts;
     const times = hosts.flatMap(({ directory }) => directory.lastSyncedAt ? [directory.lastSyncedAt] : []).sort();
     const failures = hosts.filter(({ host, directory }) => host.status !== "online" || directory.error);
     return { agents: hosts.flatMap(({ host, directory }) => directory.agents.map(agent => fleetAgent(host, agent))),
       loading: !hosts.length || hosts.every(({ directory }) => directory.loading && !directory.agents.length),
       error: failures.length ? failures.map(({ host, directory }) => `${host.label}: ${directory.error ?? host.status}`).join("; ") : null,
+      failedHosts: failures.map(({ host }) => host.serverId),
       lastSyncedAt: times[0] ?? null, isRefreshing: hosts.some(({ directory }) => directory.isRefreshing),
       truncated: hosts.some(({ directory }) => directory.truncated) || failures.length > 0,
       live: hosts.length > 0 && hosts.every(({ host, directory }) => host.status === "online" && directory.live), refresh: multi.refresh };
