@@ -1,6 +1,6 @@
 {
   "name": "agent-observatory",
-  "version": "2.20.0-dev.4",
+  "version": "2.20.0-dev.5",
   "private": true,
   "description": "A native, mobile-ready observability dashboard for Paseo agents and subagents",
   "license": "MIT"

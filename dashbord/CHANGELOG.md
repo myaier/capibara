@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.20.0-dev.5 · Capibara · 2026-10-17
+
+- Every notice above the session list can be closed with ✕: machines that could not be read, sync failures, the partial-list note, event history, saving and read-status problems. A closed notice stays hidden, also after a reload, while its problems are the same. It comes back when another machine or another problem joins it, or when a closed problem has been gone for 5 minutes and returns; a problem that flickers within those 5 minutes stays closed. The choice is saved with the host's settings; if saving fails, the notice still stays closed until the page reloads.
+
 ## 2.20.0-dev.4 · Capibara · 2026-10-17
 
 - A host with plugins turned off is no longer a dead end in the Hosts panel. **Turn on plugins** on its row, or **Sync all**, shows `paseo daemon config set pluginsEnabled true` and `paseo daemon reload`, followed by the install or enable the observatory still needs there, and runs them in one of that host's workspace terminals once confirmed. The confirmation says that every enabled plugin on that host starts, not just the observatory. Such a host now counts as needing attention.
