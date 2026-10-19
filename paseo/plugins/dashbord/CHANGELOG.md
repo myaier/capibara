@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.20.0-dev.6 · Capibara · 2026-10-19
+
+- Automatic session naming starts one light-model helper for up to 20 sessions instead of one or two per session, and gives it 60 seconds instead of 20: on a busy host the helper's start-up, not the model, used up the time, so every attempt timed out and no title was written. A timed-out helper no longer starts the alternative light model; only a provider error does.
+- A session whose naming failed waits 1 hour before the next attempt and 6 hours after the second; after the third failure it keeps its provisional title (renaming by hand still works). These attempts are kept on the host across client restarts and daemon restarts, so opening the client no longer starts the same failed sessions again. Failures are written to the plugin log with the provider, model and reason.
+
 ## 2.20.0-dev.5 · Capibara · 2026-10-17
 
 - Every notice above the session list can be closed with ✕: machines that could not be read, sync failures, the partial-list note, event history, saving and read-status problems. A closed notice stays hidden, also after a reload, while its problems are the same. It comes back when another machine or another problem joins it, or when a closed problem has been gone for 5 minutes and returns; a problem that flickers within those 5 minutes stays closed. The choice is saved with the host's settings; if saving fails, the notice still stays closed until the page reloads.

@@ -125,6 +125,9 @@ async function boundedCleanup<T>(operation: Promise<T>, timers: MetadataTimers, 
   finally { if (timer !== undefined) timers.clear(timer); }
 }
 
+/** The helper ran out of time: on a host this busy another light model would run out of time too. */
+export class MetadataTimeoutError extends Error {}
+
 /** One restricted, automatically archived session for a short metadata task. */
 export async function runMetadataTask<T>(options: MetadataTaskOptions<T>): Promise<{ value: T }> {
   const { paseo, plan, parent, signal } = options;
@@ -136,18 +139,19 @@ export async function runMetadataTask<T>(options: MetadataTaskOptions<T>): Promi
   let rejectStop!: (error: Error) => void;
   const stop = new Promise<never>((_resolve, reject) => { rejectStop = reject; });
   void stop.catch(() => {});
-  const terminate = (message: string) => { terminated ??= new Error(message); rejectStop(terminated); };
-  const cancel = () => terminate(t("metadataRunner.m024"));
-  const timer = timers.set(() => terminate(t("metadataRunner.m025")), timeoutMs);
+  const terminate = (error: Error) => { terminated ??= error; rejectStop(terminated); };
+  const timedOut = () => new MetadataTimeoutError(t("metadataRunner.m025", { value1: Math.round(timeoutMs / 1000) }));
+  const cancel = () => terminate(new Error(t("metadataRunner.m024")));
+  const timer = timers.set(() => terminate(timedOut()), timeoutMs);
   signal.addEventListener("abort", cancel, { once: true });
-  const remaining = () => { if (signal.aborted) cancel(); if (now() >= deadline) terminate(t("metadataRunner.m026")); if (terminated) throw terminated; return Math.max(1, deadline - now()); };
+  const remaining = () => { if (signal.aborted) cancel(); if (now() >= deadline) terminate(timedOut()); if (terminated) throw terminated; return Math.max(1, deadline - now()); };
   const guarded = async <V>(operation: Promise<V>): Promise<V> => { remaining(); return Promise.race([operation, stop]); };
   const archive = async (target: PaseoAgentHandle) => { try { await boundedCleanup(target.archive(), timers); } catch (error) { const failure = new Error(t("metadataRunner.m027", { value1: safeError(error) })); if (options.onCleanupError) options.onCleanupError(failure); else console.warn(failure.message); } };
   const wait = async (initial?: PaseoAgentRunResult): Promise<PaseoAgentRunResult> => {
     let result = initial;
     for (;;) {
       result ??= await guarded(handle!.waitForFinish(remaining()));
-      if (result.status === "timeout") throw new Error(t("metadataRunner.m028"));
+      if (result.status === "timeout") throw timedOut();
       if (result.status === "error") throw new Error(t("metadataRunner.m029", { value1: safeError(result.error ?? result.final?.lastError ?? t("metadataRunner.m030"), 1200) }));
       if (result.status === "idle") return result;
       let permissions = result.final?.pendingPermissions ?? handle!.current()?.pendingPermissions ?? [];
