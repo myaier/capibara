@@ -2697,5 +2697,16 @@
     "allProviders": "All providers",
     "businessFilters": "Statistics filters",
     "dedupeLimited": "Some historical logs lack complete deduplication evidence."
+  },
+  "plaza": {
+    "name": "Plaza",
+    "viewSwitch": "Session view",
+    "viewList": "List",
+    "viewPlaza": "Plaza",
+    "offWork": "Off work!",
+    "subtask": "Sub-task · {state}",
+    "projectFolder": "Project folder (shared at this table)",
+    "subagentCheckout": "Sub-agent · parent's workspace",
+    "count": "{count} agents"
   }
 }

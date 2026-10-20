@@ -2,7 +2,7 @@ import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 
 /** The installed release. tests/plugin-update.test.ts keeps it equal to package.json. */
-export const OBSERVATORY_VERSION = "2.20.0-dev.6";
+export const OBSERVATORY_VERSION = "2.20.0-dev.7";
 export const OBSERVATORY_PLUGIN_ID = "agent-observatory";
 export const CHANGELOG_ENTRIES_MAX = 8;
 

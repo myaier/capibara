@@ -5,7 +5,7 @@ import { dismissNotices, expireDismissals, hasUndismissed } from "../shared/noti
 import { isInternalAgent } from "../shared/internal-agents";
 import { t } from "../shared/text";
 import { LanguageSettings } from "./language-settings";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Text, View, type FlatList as NativeFlatList } from "react-native";
 import { type PluginSurfaceProps, type PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { usePaseo } from "./fleet-client";
@@ -46,13 +46,18 @@ import { StatsCompare } from "./stats-compare";
 import { TokenBoard } from "./token-board";
 import { tokenTotal } from "../shared/tokens";
 import { ViewTabs, type ViewTab } from "./view-tabs";
+import { plazaView } from "./plaza-host";
+import { useForeground } from "./use-foreground";
+import { phaseOf } from "./status";
+import { harnessOf } from "../shared/harness";
+import type { PlazaAgent } from "./plaza/layout";
 import { Swimlane } from "./swimlane";
 import { SessionList, countRunningDescendants, groupTitles, type SessionItem } from "./session-list";
 import { SessionActions, useSessionActions, useAutomaticSessionNames } from "./session-actions";
 import { HostsChip, HostsDialog, useHostsPanel } from "./hosts-panel";
 import { LiveDot, PhaseLegend, StatusChip, hueColor } from "./status";
 import { FilterSheet, ProjectSheet, RangeSheet, readFilterNames, sessionScopeNames, type FilterState, type SessionScope } from "./filters";
-import { ActionMenu, Banner, Button, Chip, ChipBar, EmptyState, IconButton, SearchField, Sheet, Skeleton, Spacer, SplitView, SyncStatus, Toolbar, fontSize, hairline, hueFor, radius, space, useCompactLayout, type MenuAction } from "./kit";
+import { ActionMenu, Banner, Button, Chip, ChipBar, EmptyState, IconButton, SearchField, Segmented, Sheet, Skeleton, Spacer, SplitView, SyncStatus, Toolbar, fontSize, hairline, hueFor, radius, space, useCompactLayout, type MenuAction } from "./kit";
 import { checkoutName, statusNames, Switch, useClock } from "./ui";
 import { tint, tintAlpha } from "./status";
 import type { ScheduleFocus } from "./schedule-focus";
@@ -122,6 +127,8 @@ export function DashboardView({ theme, layout, host, navigation, workspaceId, in
   const [sessionScope, setSessionScope] = useState<SessionScope>("all");
   const [tab, setTab] = useState<DashboardTab>("agents");
   const [view, setView] = useState<"tree" | "list">(archiveMode ? "list" : "tree");
+  // 列表 / 广场: the plaza draws the same sessions as an office (web only; phones keep the list).
+  const [sessionsView, setSessionsView] = useState<"list" | "plaza">("list");
   const [sort, setSort] = useState<"attention" | "recent">(archiveMode ? "recent" : "attention");
   const [selectedId, setSelectedId] = useState<string | null>(initialAgentId ?? null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -160,10 +167,10 @@ export function DashboardView({ theme, layout, host, navigation, workspaceId, in
   const rates = useMemo(() => new Map((rowLive.data?.agents ?? []).flatMap(agent => agent.agentId && agent.outputPerSec > 0 ? [[agent.agentId, agent.outputPerSec] as const] : [])), [rowLive.data]);
   useEffect(() => { setWorkspace(workspaceId ?? "all"); }, [workspaceId]);
   useEffect(() => { onAnalyticsVisible?.(observing); }, [observing, onAnalyticsVisible]);
-  const syncedView: ViewPreferences = useMemo(() => ({ query: "", status, readFilter, workspace, project, checkout, provider, range, sessionScope, view, sort, expanded: [...expanded], scrollOffset: 0, focus }), [status, readFilter, workspace, project, checkout, provider, range, sessionScope, view, sort, expanded, focus]);
+  const syncedView: ViewPreferences = useMemo(() => ({ query: "", status, readFilter, workspace, project, checkout, provider, range, sessionScope, view, sort, expanded: [...expanded], scrollOffset: 0, focus, sessionsView }), [status, readFilter, workspace, project, checkout, provider, range, sessionScope, view, sort, expanded, focus, sessionsView]);
   const currentView: ViewPreferences = useMemo(() => ({ ...syncedView, query }), [syncedView, query]);
   const withScroll = (next: ViewPreferences): ViewPreferences => ({ ...next, scrollOffset: Math.round(scrollOffset.current) });
-  const applyView = (next: ViewPreferences, restoreScroll = false) => { setQuery(next.query); setStatus(next.status); setReadFilter(next.readFilter); setWorkspace(workspaceId ?? next.workspace); setProject(next.project); setCheckout(next.checkout); setProvider(next.provider); setRange(next.range); setSessionScope(next.sessionScope); setView(next.view); setSort(next.sort); setExpanded(new Set(next.expanded)); setFocus(next.focus ?? "all"); pendingScroll.current = restoreScroll ? next.scrollOffset : 0; };
+  const applyView = (next: ViewPreferences, restoreScroll = false) => { setQuery(next.query); setStatus(next.status); setReadFilter(next.readFilter); setWorkspace(workspaceId ?? next.workspace); setProject(next.project); setCheckout(next.checkout); setProvider(next.provider); setRange(next.range); setSessionScope(next.sessionScope); setView(next.view); setSort(next.sort); setExpanded(new Set(next.expanded)); setFocus(next.focus ?? "all"); if (next.sessionsView) setSessionsView(next.sessionsView); pendingScroll.current = restoreScroll ? next.scrollOffset : 0; };
   useEffect(() => { hydrated.current = false; }, [viewStorageKey]);
   // A fresh open shows every session grouped by state: the state chips (需要处理 / 执行中 / 未读 / 待回复 and 状态) are not
   // restored. Coming back from the archive page restores the list as it was left.
@@ -248,6 +255,22 @@ export function DashboardView({ theme, layout, host, navigation, workspaceId, in
   }, [rows, sort, archiveMode, attentionOf, snoozedAt, host.id]);
   useEffect(() => { if (pendingScroll.current === null || !items.length) return; const offset = pendingScroll.current; pendingScroll.current = null; scrollOffset.current = offset; if (offset > 0) setTimeout(() => list.current?.scrollToOffset({ offset, animated: false }), 0); }, [items.length]);
   const selected = selectedId ? agents.find(agent => agent.id === selectedId) : undefined;
+  // The plaza shows every session the list would show, subagents included (flat), one colleague each. Web only.
+  const foreground = useForeground();
+  const plazaAvailable = layout.platform === "web" && !archiveMode;
+  const plazaShown = plazaAvailable && sessionsView === "plaza" && tab === "agents";
+  const plazaAgents = useMemo((): PlazaAgent[] => {
+    if (!plazaShown) return [];
+    const { rows: flat } = buildDashboardRows(scoped.filter(agent => readFilter !== "unread" || showSnoozed || !heldBySnooze(agent, snoozedAt(agent))), { query, status, view: "list", sort: "recent", expanded, readFilter, focus: focus === "attention" ? attentionOf : undefined });
+    return flat.map(({ node: { agent } }) => {
+      const harness = harnessOf(agent.provider, providerBases.data);
+      return { id: agent.id, name: agent.title, project: agent.projectName, host: fleet ? agent.hostLabel ?? null : null,
+        checkout: agent.checkoutKind === "worktree" ? "worktree" : "local", worktree: agent.worktreeName ?? agent.branch, parentId: agent.parentAgentId,
+        provider: harness.id, providerLabel: harness.name, seat: Date.parse(agent.createdAt ?? "") || 0,
+        phase: phaseOf(agent, isUnreadCompletion(agent) && !!snoozedAt(agent)), offline: agent.hostOnline === false };
+    });
+  }, [plazaShown, scoped, query, status, expanded, readFilter, showSnoozed, snoozedAt, focus, attentionOf, providerBases.data, fleet]);
+  const plazaFilter = JSON.stringify([query, status, readFilter, focus, showSnoozed, workspace, project, checkout, provider, model, sessionScope, range]);
   const scopeIds = useMemo(() => new Set(scoped.filter(agent => matchesAgentStatus(agent, status) && (readFilter === "all" || completionReadState(agent) === readFilter) && (focus === "all" || attentionOf(agent))).map(a => a.id)), [scoped, status, readFilter, focus, attentionOf]);
   const eventSince = range === "all" ? -Infinity : filterNow - (range === "24h" ? 1 : range === "7d" ? 7 : 30) * 86400_000;
   const events = useMemo(() => (telemetry?.events ?? []).filter(event => scopeIds.has(event.agentId) && Date.parse(event.at) >= eventSince), [telemetry, scopeIds, eventSince]);
@@ -440,6 +463,8 @@ export function DashboardView({ theme, layout, host, navigation, workspaceId, in
           <LiveDot color={hueColor(theme, "ok")} size={6} live={data.live} />
           {compact ? null : <Text numberOfLines={1} style={{ color: colors.foregroundMuted, fontSize: fontSize.meta }}>{sync.label}</Text>}
         </View> : <SyncStatus theme={theme} state={sync.state} label={compact ? undefined : sync.label} />}</View>
+        {sessionsTab && plazaAvailable ? <Segmented theme={theme} size="sm" value={sessionsView} onChange={setSessionsView} accessibilityLabel={t("plaza.viewSwitch")}
+          options={[{ value: "list", label: t("plaza.viewList"), icon: "List" }, { value: "plaza", label: t("plaza.viewPlaza"), icon: "Armchair" }]} /> : null}
         <HostsChip theme={theme} compact={compact} panel={hostsPanel} onOpen={() => setHostsOpen(true)} />
         <IconButton theme={theme} icon="Ellipsis" label={t("coreDashboard.moreActions")} onPress={() => setMenuOpen(true)} />
       </Toolbar>
@@ -470,7 +495,8 @@ export function DashboardView({ theme, layout, host, navigation, workspaceId, in
         projects={projects} providers={[...new Set([...providers, ...(stats.data?.providers ?? []).map(row => row.key)])]}
         models={[...new Set([...agents.flatMap(agent => agent.model ? [agent.model] : []), ...(stats.data?.models ?? []).map(row => row.key), ...(tokens.data?.models ?? []).map(row => row.key)])]}
         onProject={setProject} onProvider={setProvider} onModel={setModel} /> : null}
-      {sessionsTab ? <SplitView theme={theme} compact={compact} showDetail={false} list={sessionList} detail={detail} />
+      {plazaShown ? <PlazaPane theme={theme} compact={compact} agents={plazaAgents} empty={empty} rates={rates} selectedId={selectedId} onSelect={selectRow} filterKey={plazaFilter} paused={!foreground} detail={selected ? detail : null} />
+        : sessionsTab ? <SplitView theme={theme} compact={compact} showDetail={false} list={sessionList} detail={detail} />
         : tab === "activity" ? <>
           {!compact && events.length ? <Swimlane theme={theme} events={events} agents={agents} now={now} compact={false} onSelect={selectAgent} inset={space.lg} /> : null}
           <SplitView theme={theme} compact={compact} showDetail={false} list={<ActivityFeed events={events} theme={theme} telemetry={telemetry} onSelect={selectAgent} now={now} selectedId={selectedId} agents={agents} swimlane={compact} />} detail={detail} />
@@ -507,5 +533,18 @@ export function DashboardView({ theme, layout, host, navigation, workspaceId, in
       onChange={changeFilters} onReset={resetFilters} savedViews={savedViews} canSave={preferences.ready}
       onSaveView={name => preferences.mutate({ saveView: { name, view: withScroll(currentView) } }).then(() => { toast.show(t("coreDashboard.viewSaved"), { variant: "success" }); })}
       onApplyView={saved => applyView(saved.view)} onDeleteView={saved => { void preferences.mutate({ deleteSavedViewId: saved.id }).catch(() => {}); }} />
+  </View>;
+}
+
+/** The plaza fills the page; a picked colleague's detail slides over its right side (phones never get here). */
+function PlazaPane({ theme, compact, agents, empty, rates, selectedId, onSelect, filterKey, paused, detail }: {
+  theme: DashboardProps["theme"]; compact: boolean; agents: PlazaAgent[]; empty: ReactNode; rates: ReadonlyMap<string, number>; selectedId: string | null;
+  onSelect: (id: string) => void; filterKey: string; paused: boolean; detail: ReactNode | null;
+}) {
+  const Plaza = plazaView();
+  if (!agents.length || !Plaza) return <View style={{ flex: 1, minHeight: 0 }}>{empty}</View>;
+  return <View style={{ flex: 1, minHeight: 0, flexDirection: "row" }}>
+    <View style={{ flex: 1, minWidth: 0 }}><Plaza theme={theme} agents={agents} rates={rates} selectedId={selectedId} onSelect={onSelect} filterKey={filterKey} paused={paused} /></View>
+    {detail && !compact ? <View style={{ width: 420, maxWidth: "45%", borderLeftWidth: hairline, borderLeftColor: theme.colors.border, backgroundColor: theme.colors.surface0 }}>{detail}</View> : null}
   </View>;
 }
