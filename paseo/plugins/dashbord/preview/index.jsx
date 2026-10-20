@@ -7,6 +7,8 @@ import * as Lucide from "lucide-react";
 import { setupFleetFixture } from "./fleet-fixture";
 import { FleetProvider, fleetNavigation } from "../client/fleet-client";
 import { DashboardSurface, DashboardView } from "../client/dashboard";
+import { providePlaza } from "../client/plaza-host";
+import { AgentsPlaza } from "../client/plaza/scene";
 import { ScheduleSurface } from "../client/schedule-board";
 import { focusScheduleRuns } from "../client/schedule-focus";
 import { ToastHost } from "./sdk-adapter";
@@ -22,6 +24,7 @@ const theme = light ? paseoLight : paseoDark;
 globalThis.__previewTheme = theme;
 document.documentElement.style.colorScheme = light ? "light" : "dark";
 document.body.style.background = theme.colors.surface0;
+providePlaza(props => <AgentsPlaza {...props} version="preview" />);
 const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 globalThis.__previewSeedNativeStats = () => {
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone, offset = -new Date().getTimezoneOffset();

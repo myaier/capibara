@@ -2496,5 +2496,16 @@
     "allProviders": "全部 Provider",
     "businessFilters": "统计筛选",
     "dedupeLimited": "部分历史日志缺少完整去重证据。"
+  },
+  "plaza": {
+    "name": "广场",
+    "viewSwitch": "会话视图",
+    "viewList": "列表",
+    "viewPlaza": "广场",
+    "offWork": "下班啦～",
+    "subtask": "子任务 · {state}",
+    "projectFolder": "项目目录（与同桌共用）",
+    "subagentCheckout": "子 Agent · 与主 Agent 同一工作区",
+    "count": "{count} 位同事"
   }
 }

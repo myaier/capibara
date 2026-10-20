@@ -2209,3 +2209,29 @@ test.describe("定时运行", () => {
     await noHorizontalOverflow(page);
   });
 });
+
+test("agents plaza: switch from the list, one colleague per session, a click opens the session, and back", async ({ page }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
+  await open(page, testInfo);
+  const switcher = page.getByRole("tablist", { name: "会话视图", exact: true });
+  await switcher.getByRole("tab", { name: "广场", exact: true }).click();
+  await expect(page.locator(".plz-station")).toHaveCount(12);
+  // Every state chip still applies: 执行中 leaves the three running sessions.
+  await page.getByRole("button", { name: "执行中 3", exact: true }).click();
+  await expect(page.locator(".plz-station")).toHaveCount(3);
+  await page.getByRole("button", { name: "执行中 3", exact: true }).click();
+  await expect(page.locator(".plz-station")).toHaveCount(12);
+  await noHorizontalOverflow(page);
+  await screenshot(page, testInfo, "plaza");
+  await page.locator('.plz-station[data-state="approval"]').click();
+  await expect(page.getByTestId("agent-detail")).toBeVisible();
+  await expect(page.getByTestId("agent-detail").getByText("审查数据库迁移", { exact: true }).first()).toBeVisible();
+  await closeDetail(page);
+  if (compact(page)) await expect(page.locator(".plz-station")).toHaveCount(12);
+  await switcher.getByRole("tab", { name: "列表", exact: true }).click();
+  await expect(page.getByRole("button", { name: "查看 审查数据库迁移，待审批", exact: true })).toBeVisible();
+  await expect(page.locator(".plz-station")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

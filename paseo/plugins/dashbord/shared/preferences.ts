@@ -13,6 +13,8 @@ export const viewPreferencesSchema = z.object({
   expanded: z.array(z.string().min(1).max(256)).max(2000), scrollOffset: z.number().finite().min(0).max(100_000_000),
   // 2.2 quick scope「需要处理」. Optional so views stored by older versions still parse; older servers strip it.
   focus: z.enum(["all", "attention"]).optional(),
+  // 2.20 session list or agents plaza (web). Optional for the same reason as focus.
+  sessionsView: z.enum(["list", "plaza"]).optional(),
 });
 export const savedViewSchema = z.object({
   id: z.string().min(1).max(128), name: z.string().trim().min(1).max(80), createdAt: iso, updatedAt: iso, view: viewPreferencesSchema,

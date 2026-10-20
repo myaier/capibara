@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.20.0-dev.7 · Capibara · 2026-10-20
+
+- The session list has a **List / Plaza** switch at the top right (desktop and web; the Paseo phone app keeps the list). The plaza draws the same sessions as an office of capybara colleagues: every session sits at its own desk, desks are grouped by project, sessions working in the project folder itself share one long table, a session with its own worktree has a desk with a small flag, and sub-agents sit at a smaller desk beside their parent. The monitor's back shows the coding agent (Claude Code, Codex, Kimi Code, OpenCode or the provider's name), running sessions show their live output speed above their head, and each of the 16 states has its own face, posture, effect and screen light.
+- The search, state chips, project, range and filters apply to the plaza as they do to the list. Clicking a colleague opens the same session detail beside the office. A session that starts while the plaza is open gets a desk built and walks in; one that ends packs up and leaves, and the desks close up. Idle colleagues in a single-team room now and then walk to the coffee bar behind the desks. Animations pause while Paseo is in the background; an offline host's colleagues are shown grey and still.
+- The choice is saved with the view. The plaza's art (about 0.9 MB) loads only when the plaza is first opened.
+
 ## 2.20.0-dev.6 · Capibara · 2026-10-19
 
 - Automatic session naming starts one light-model helper for up to 20 sessions instead of one or two per session, and gives it 60 seconds instead of 20: on a busy host the helper's start-up, not the model, used up the time, so every attempt timed out and no title was written. A timed-out helper no longer starts the alternative light model; only a provider error does.

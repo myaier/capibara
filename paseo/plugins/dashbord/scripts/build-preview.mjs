@@ -10,7 +10,7 @@ await mkdir(output, { recursive: true });
 await build({
   absWorkingDir: root,
   entryPoints: ["preview/index.jsx"], bundle: true, outfile: join(output, "app.js"), platform: "browser",
-  format: "iife", target: ["es2020"], sourcemap: true, jsx: "automatic", logLevel: "warning",
+  format: "iife", target: ["es2020"], sourcemap: true, jsx: "automatic", logLevel: "warning", loader: { ".webp": "dataurl" },
   alias: { "react-native": "react-native-web", "@getpaseo/plugin/client": "./preview/sdk-adapter.jsx",
     "@getpaseo/plugin/client/react-native": "./preview/sdk-adapter.jsx", "@getpaseo/plugin/client/ui": "./preview/sdk-adapter.jsx" },
   define: { "process.env.NODE_ENV": '"development"', __DEV__: "true" },

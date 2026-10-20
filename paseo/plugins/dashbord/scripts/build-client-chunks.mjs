@@ -12,7 +12,7 @@ for (const chunk of chunks) {
   const result = await build({
     absWorkingDir: root, entryPoints: [chunk.entry], bundle: true, format: "cjs", jsx: "automatic",
     platform: "neutral", target: "es2020", supported: { "async-await": false }, packages: "external",
-    treeShaking: true, minifyWhitespace: true, minifySyntax: true, minifyIdentifiers: false,
+    treeShaking: true, loader: { ".webp": "dataurl" }, minifyWhitespace: true, minifySyntax: true, minifyIdentifiers: false,
     write: false, logLevel: "silent",
   });
   // Match Paseo's eager host-module interop for Hermes, including renamed helper loop variables.

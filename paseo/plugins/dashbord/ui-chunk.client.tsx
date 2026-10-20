@@ -5,6 +5,7 @@ import { screenLocationForHost } from "./shared/screen-routing";
 import { followText } from "./shared/i18n";
 import type { ChunkExtras } from "./client/lazy-chunk";
 import { LanguageScreen } from "./client/language-screen";
+import { registerPlaza } from "./client/plaza-host";
 import type { ComponentType } from "react";
 import type { PluginAgentPanelProps, PluginClientContext, PluginPopoverProps, PluginScreenProps, PluginWorkspacePanelProps } from "@getpaseo/plugin/client";
 import { ArchivedSurface, DashboardSurface, WorkspaceDashboard } from "./client/dashboard";
@@ -20,6 +21,7 @@ export default function chunk() { return { api: 1, createSurfaces }; }
 
 function createSurfaces(client: PluginClientContext, extras?: ChunkExtras): Record<string, ComponentType<any>> {
   followText(extras?.text);
+  registerPlaza(client, extras);
   const screens = typeof client.addScreen === "function";
   const open = (screenId: string, params?: Record<string, string>, hostId?: string) => {
     const location = params ? { screenId, params } : { screenId };

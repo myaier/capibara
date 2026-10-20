@@ -1,1 +1,1 @@
-[{"name":"ui","entry":"ui-chunk.client.tsx","manifest":"UI_CHUNK","api":1}]
+[{"name":"plaza","entry":"plaza-chunk.client.tsx","manifest":"PLAZA_CHUNK","api":1},{"name":"ui","entry":"ui-chunk.client.tsx","manifest":"UI_CHUNK","api":1}]
