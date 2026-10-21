@@ -52,7 +52,7 @@ import { phaseOf } from "./status";
 import { harnessOf } from "../shared/harness";
 import type { PlazaAgent } from "./plaza/layout";
 import { Swimlane } from "./swimlane";
-import { SessionList, countRunningDescendants, groupTitles, type SessionItem } from "./session-list";
+import { SessionList, countRunningDescendants, groupTitles, useSessionGroupCollapse, type SessionItem } from "./session-list";
 import { SessionActions, useSessionActions, useAutomaticSessionNames } from "./session-actions";
 import { HostsChip, HostsDialog, useHostsPanel } from "./hosts-panel";
 import { LiveDot, PhaseLegend, StatusChip, hueColor } from "./status";
@@ -132,6 +132,7 @@ export function DashboardView({ theme, layout, host, navigation, workspaceId, in
   const [sort, setSort] = useState<"attention" | "recent">(archiveMode ? "recent" : "attention");
   const [selectedId, setSelectedId] = useState<string | null>(initialAgentId ?? null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const groupCollapse = useSessionGroupCollapse();
   const [checkout, setCheckout] = useState("all");
   const [sheet, setSheet] = useState<"filters" | "project" | "range" | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -448,7 +449,7 @@ export function DashboardView({ theme, layout, host, navigation, workspaceId, in
   const iconTabs = compact && surfaceWidth > 0 && surfaceWidth < 560;
   const statsProps = { theme, compact, stats: stats.data, loading: stats.isPending, error: stats.error?.message, range: statsRange, onRange: setStatsRange, onRefresh: refresh };
   const searching = sessionsTab && compact && (searchOpen || !!query);
-  const sessionList = <SessionList items={items} theme={theme} compact={compact} selectedId={selectedId} expanded={expanded} forceExpanded={revealing} now={now} signals={signals} rates={rates}
+  const sessionList = <SessionList {...groupCollapse} items={items} theme={theme} compact={compact} selectedId={selectedId} expanded={expanded} forceExpanded={revealing} now={now} signals={signals} rates={rates}
     bases={providerBases.data} heartbeats={heartbeats.data?.byAgent} marked={archiveMarks ?? undefined} empty={empty} listRef={list} onScrollEnd={onScrollEnd} onToggle={toggle} onSelect={selectRow} onActions={sessionActions.open} />;
   const pushDetail = compact && !!selected && listTab;
   return <View onLayout={onLayout} style={{ flex: 1, minHeight: 0, backgroundColor: colors.surface0 }}>

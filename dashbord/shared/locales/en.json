@@ -1112,7 +1112,9 @@
     "message": ": {value1}",
     "backgroundSubtasksRunning": "{value1} background subtasks running{value2}",
     "collapseSubagents": "Collapse subagents of {name}",
-    "expandSubagents": "Expand subagents of {name}"
+    "expandSubagents": "Expand subagents of {name}",
+    "collapseGroup": "Collapse {title} sessions",
+    "expandGroup": "Expand {title} sessions"
   },
   "secondaryStatsBoard": {
     "message": "{value1}/{value2} {value3}",

@@ -44,6 +44,30 @@ test("session and schedule labels follow the active translator without reimporti
   } finally { useChinese(); }
 });
 
+test("session group toggles localize their action and expose their expanded state", async () => {
+  const { SessionList, groupTitles } = await import("../client/session-list");
+  const render = (group: "attention" | "done", collapsed: boolean) => renderToString(createElement(SessionList, {
+    theme, compact: false, selectedId: null, expanded: new Set(), forceExpanded: false,
+    items: [{ kind: "section", key: `section:${group}`, group, title: groupTitles[group], count: 3 }],
+    collapsedGroups: new Set(collapsed ? [group] : []), onToggleGroup() {}, now: 0, signals: new Map(), empty: null, onToggle() {}, onSelect() {},
+  } as never));
+  try {
+    for (const [group, chinese, english] of [["attention", "需要处理", "Needs you"], ["done", "已完成", "Completed"]] as const) {
+      useChinese();
+      assert.match(render(group, false), new RegExp(`aria-label="收起 ${chinese} 会话"`));
+      assert.match(render(group, true), new RegExp(`aria-label="展开 ${chinese} 会话"`));
+      useEnglish();
+      const expanded = render(group, false), collapsed = render(group, true);
+      assert.match(expanded, new RegExp(`aria-label="Collapse ${english} sessions"`));
+      assert.match(expanded, /aria-expanded="true"/);
+      assert.match(expanded, /data-icon="ChevronDown"/);
+      assert.match(collapsed, new RegExp(`aria-label="Expand ${english} sessions"`));
+      assert.match(collapsed, /aria-expanded="false"/);
+      assert.match(collapsed, /data-icon="ChevronRight"/);
+    }
+  } finally { useChinese(); }
+});
+
 test("durations preserve Chinese and allow a user language to reorder hours and minutes", async () => {
   const { shortDuration } = await import("../client/ui");
   useChinese();
