@@ -516,6 +516,171 @@ test("nested execution tree expands and collapses", async ({ page }, testInfo) =
   await expect(page.getByRole("button", { name: "查看 验证重复请求，已完成", exact: true })).toHaveCount(0);
 });
 
+const sessionGroups = [["attention", "需要处理", "2"], ["running", "执行中", "2"], ["waiting", "待回复", "1"],
+  ["done", "已完成", "1"], ["quiet", "空闲", "1"], ["closed", "已关闭", "2"]] as const;
+async function openSessionGroups(page: Page, testInfo: TestInfo) {
+  await open(page, testInfo);
+  // The completed fixture starts unread in 需要处理; native read moves it to the separate 已完成 group.
+  expect(await page.evaluate(() => (globalThis as Fixture).__previewNativeReadAgent("performance-baseline"))).toBe(true);
+  await expect(page.getByTestId("session-group-done").getByRole("button", { name: "收起 已完成 会话", exact: true })).toHaveAttribute("aria-expanded", "true");
+}
+
+test("session groups: done and running collapse independently, preserving counts and nested expansion; desktop Enter/Space toggles", async ({ page }, testInfo) => {
+  await openSessionGroups(page, testInfo);
+  for (const [group, title, count] of sessionGroups) {
+    const header = page.getByTestId(`session-group-${group}`);
+    await expect(header.getByRole("button", { name: `收起 ${title} 会话`, exact: true })).toHaveAttribute("aria-expanded", "true");
+    await expect(header.getByText(title, { exact: true })).toHaveCount(1);
+    await expect(header.getByText(count, { exact: true })).toHaveCount(1);
+  }
+  await touchScrollUp(page);
+  await page.getByRole("button", { name: "展开 重构支付服务 的子 agent", exact: true }).click();
+  await page.getByRole("button", { name: "展开 实现幂等请求 的子 agent", exact: true }).click();
+  const parent = page.getByRole("button", { name: "查看 重构支付服务，执行中", exact: true });
+  const child = page.getByRole("button", { name: "查看 实现幂等请求，执行中", exact: true });
+  const grandchild = page.getByRole("button", { name: "查看 验证重复请求，已完成", exact: true });
+  const completed = page.getByRole("button", { name: "查看 整理性能基线，已完成", exact: true });
+  await grandchild.scrollIntoViewIfNeeded();
+  await expect(grandchild).toBeVisible();
+
+  const running = page.getByTestId("session-group-running");
+  const collapse = running.getByRole("button", { name: "收起 执行中 会话", exact: true });
+  await collapse.scrollIntoViewIfNeeded();
+  if (compact(page)) await collapse.click(); else await collapse.press("Enter");
+  const expand = running.getByRole("button", { name: "展开 执行中 会话", exact: true });
+  await expect(expand).toHaveAttribute("aria-expanded", "false");
+  await expect(running.getByText("2", { exact: true })).toHaveCount(1); // Threads, not expanded descendants.
+  for (const row of [parent, child, grandchild, page.getByRole("button", { name: "查看 补充接口测试，已完成", exact: true }), page.getByRole("button", { name: "查看 准备移动端测试，启动中", exact: true })]) await expect(row).toHaveCount(0);
+  await expect(completed).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "查看 审查数据库迁移，待审批", exact: true })).toHaveCount(1);
+
+  const done = page.getByTestId("session-group-done");
+  await done.getByRole("button", { name: "收起 已完成 会话", exact: true }).click();
+  await expect(done.getByRole("button", { name: "展开 已完成 会话", exact: true })).toHaveAttribute("aria-expanded", "false");
+  await expect(done.getByText("已完成", { exact: true })).toBeVisible();
+  await expect(done.getByText("1", { exact: true })).toBeVisible();
+  await expect(completed).toHaveCount(0);
+  await expect(expand).toHaveAttribute("aria-expanded", "false");
+  await expand.scrollIntoViewIfNeeded();
+  if (compact(page)) await expand.click(); else await expand.press("Space");
+  await expect(collapse).toHaveAttribute("aria-expanded", "true");
+  for (const row of [parent, child, grandchild]) await expect(row).toHaveCount(1);
+  for (const title of ["重构支付服务", "实现幂等请求"]) await expect(page.getByRole("button", { name: `收起 ${title} 的子 agent`, exact: true })).toHaveAttribute("aria-expanded", "true");
+  await expect(done.getByRole("button", { name: "展开 已完成 会话", exact: true })).toHaveAttribute("aria-expanded", "false");
+  await expect(completed).toHaveCount(0);
+  for (const title of ["需要处理", "待回复", "空闲", "已关闭"]) await expect(page.getByRole("button", { name: `收起 ${title} 会话`, exact: true })).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByTestId("agent-detail")).toHaveCount(0);
+  expect(await page.evaluate(() => (globalThis as Fixture).__previewAgentOperations)).toEqual([]);
+  expect(await marks(page)).toEqual([]);
+  await noHorizontalOverflow(page);
+});
+
+test("session groups: all collapsed is not empty, and filtering or live completions do not reopen groups", async ({ page }, testInfo) => {
+  await openSessionGroups(page, testInfo);
+  for (const [group, title, count] of sessionGroups) {
+    const header = page.getByTestId(`session-group-${group}`);
+    await header.getByRole("button", { name: `收起 ${title} 会话`, exact: true }).click();
+    await expect(header.getByRole("button", { name: `展开 ${title} 会话`, exact: true })).toHaveAttribute("aria-expanded", "false");
+    await expect(header.getByText(count, { exact: true })).toHaveCount(1);
+  }
+  await expect(page.getByRole("button", { name: /^查看 .*，/ })).toHaveCount(0);
+  await expect(page.getByTestId(/^session-group-/)).toHaveCount(6);
+  await expect(page.getByText(/^(还没有会话|没有匹配的会话)$/)).toHaveCount(0);
+
+  // A matching descendant normally reveals its ancestors, but must not override a collapsed group.
+  await search(page, "实现幂等请求");
+  await expect(page.getByTestId("session-group-running").getByText("1", { exact: true })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "展开 执行中 会话", exact: true })).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("button", { name: /^查看 .*，/ })).toHaveCount(0);
+  await expect(page.getByText("没有匹配的会话", { exact: true })).toHaveCount(0);
+  await search(page, "no-such-agent-fixture");
+  await expect(page.getByText("没有匹配的会话", { exact: true })).toBeVisible();
+  await expect(page.getByTestId(/^session-group-/)).toHaveCount(0);
+  await search(page, "");
+  for (const [, title] of sessionGroups) await expect(page.getByRole("button", { name: `展开 ${title} 会话`, exact: true })).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("button", { name: /^查看 .*，/ })).toHaveCount(0);
+  await expect(page.getByText("没有匹配的会话", { exact: true })).toHaveCount(0);
+
+  // Isolate live grouping from the 30-second range clock: a just-created read result can be newer than its last tick.
+  await selectRange(page, "全部时间");
+  // A live result moves from 空闲 to 已完成 after native read; the count changes, not the collapsed state.
+  await page.evaluate(() => {
+    (globalThis as Fixture).__previewCompleteAgent("renamed-project-check");
+    (globalThis as Fixture).__previewNativeReadAgent("renamed-project-check");
+  });
+  const done = page.getByTestId("session-group-done");
+  await expect(done.getByText("2", { exact: true })).toHaveCount(1);
+  await expect(page.getByTestId("session-group-quiet")).toHaveCount(0);
+  await expect(done.getByRole("button", { name: "展开 已完成 会话", exact: true })).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("button", { name: /^查看 .*，/ })).toHaveCount(0);
+  await expect(page.getByText(/^(还没有会话|没有匹配的会话)$/)).toHaveCount(0);
+  await done.getByRole("button", { name: "展开 已完成 会话", exact: true }).click();
+  for (const title of ["整理性能基线", "核对项目名称与工作区"]) await expect(page.getByRole("button", { name: `查看 ${title}，已完成`, exact: true })).toHaveCount(1);
+  for (const title of ["需要处理", "执行中", "待回复", "已关闭"]) await expect(page.getByRole("button", { name: `展开 ${title} 会话`, exact: true })).toHaveAttribute("aria-expanded", "false");
+});
+
+test("session groups: collapse survives detail back, tabs, and ungrouped recent sorting until page reload", async ({ page }, testInfo) => {
+  await openSessionGroups(page, testInfo);
+  const running = page.getByTestId("session-group-running");
+  const done = page.getByTestId("session-group-done");
+  const expand = running.getByRole("button", { name: "展开 执行中 会话", exact: true });
+  const expandDone = done.getByRole("button", { name: "展开 已完成 会话", exact: true });
+  const row = page.getByRole("button", { name: "查看 重构支付服务，执行中", exact: true });
+  const completed = page.getByRole("button", { name: "查看 整理性能基线，已完成", exact: true });
+  await running.getByRole("button", { name: "收起 执行中 会话", exact: true }).click();
+  await done.getByRole("button", { name: "收起 已完成 会话", exact: true }).click();
+  await page.getByRole("button", { name: "查看 审查数据库迁移，待审批", exact: true }).click();
+  await expect(page.getByTestId("agent-detail")).toBeVisible();
+  if (compact(page)) await expect(running).toHaveCount(0); // Detail unmounts the list, not DashboardView.
+  await closeDetail(page);
+  for (const toggle of [expand, expandDone]) await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  for (const session of [row, completed]) await expect(session).toHaveCount(0);
+
+  await page.getByRole("tab", { name: /^事件/ }).click();
+  await expect(page.getByTestId(/^session-group-/)).toHaveCount(0);
+  await page.getByRole("tab", { name: /^会话/ }).click();
+  for (const toggle of [expand, expandDone]) await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  for (const session of [row, completed]) await expect(session).toHaveCount(0);
+  await menu(page, "按最近活动排序");
+  await expect(page.getByTestId(/^session-group-/)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^查看 .*，/ })).toHaveCount(9);
+  for (const session of [row, completed]) await expect(session).toHaveCount(1);
+  await menu(page, "按需要处理排序");
+  for (const toggle of [expand, expandDone]) await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  for (const session of [row, completed]) await expect(session).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "收起 需要处理 会话", exact: true })).toHaveAttribute("aria-expanded", "true");
+
+  await page.reload();
+  await expect(running.getByRole("button", { name: "收起 执行中 会话", exact: true })).toHaveAttribute("aria-expanded", "true");
+  // Reload also resets the synthetic host's read state; expose 已完成 again to verify its default.
+  expect(await page.evaluate(() => (globalThis as Fixture).__previewNativeReadAgent("performance-baseline"))).toBe(true);
+  await expect(done.getByRole("button", { name: "收起 已完成 会话", exact: true })).toHaveAttribute("aria-expanded", "true");
+  for (const session of [row, completed]) await expect(session).toHaveCount(1);
+});
+
+test("session groups: list and plaza preserve independent collapse without hiding plaza sessions", async ({ page }, testInfo) => {
+  await openSessionGroups(page, testInfo);
+  for (const title of ["执行中", "已完成"]) await page.getByRole("button", { name: `收起 ${title} 会话`, exact: true }).click();
+  const switcher = page.getByRole("tablist", { name: "会话视图", exact: true });
+  await switcher.getByRole("tab", { name: "广场", exact: true }).click();
+  await expect(page.getByTestId(/^session-group-/)).toHaveCount(0);
+  await expect(page.locator(".plz-station")).toHaveCount(12);
+  await page.getByRole("button", { name: "执行中 3", exact: true }).click();
+  await expect(page.locator(".plz-station")).toHaveCount(3);
+  await switcher.getByRole("tab", { name: "列表", exact: true }).click();
+  await expect(page.locator(".plz-station")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "展开 执行中 会话", exact: true })).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("button", { name: /^查看 .*，/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "执行中 3", exact: true }).click();
+  for (const title of ["执行中", "已完成"]) await expect(page.getByRole("button", { name: `展开 ${title} 会话`, exact: true })).toHaveAttribute("aria-expanded", "false");
+  for (const title of ["需要处理", "待回复", "空闲", "已关闭"]) await expect(page.getByRole("button", { name: `收起 ${title} 会话`, exact: true })).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("button", { name: "查看 整理性能基线，已完成", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "展开 已完成 会话", exact: true }).click();
+  await expect(page.getByRole("button", { name: "查看 整理性能基线，已完成", exact: true })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "展开 执行中 会话", exact: true })).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("button", { name: "查看 重构支付服务，执行中", exact: true })).toHaveCount(0);
+});
+
 test("后台执行中: a finished session whose subagent still works is 执行中 with a 后台 mark, not an unread result", async ({ page }, testInfo) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));

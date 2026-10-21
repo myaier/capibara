@@ -1,7 +1,7 @@
 import { hostEntityId } from "../shared/fleet-scope";
 import { joinList } from "../shared/i18n";
 import { t } from "../shared/text";
-import { memo, useCallback, useMemo, useRef, type ReactNode, type Ref } from "react";
+import { memo, useCallback, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
 import { Pressable, Text, View, type FlatList as NativeFlatList, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import type { PluginTheme } from "@getpaseo/plugin";
 import { FlatList, Icon, useToast } from "@getpaseo/plugin/client/react-native";
@@ -237,23 +237,43 @@ function BackgroundChip({ theme, agent }: { theme: PluginTheme; agent: AgentReco
   </View>;
 }
 
+/** Keep group choices in the owning view, including while a compact layout shows a session's detail. */
+export function useSessionGroupCollapse() {
+  const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<DashboardGroup>>(() => new Set());
+  const onToggleGroup = useCallback((group: DashboardGroup) => setCollapsedGroups(previous => {
+    const next = new Set(previous);
+    if (next.has(group)) next.delete(group); else next.add(group);
+    return next;
+  }), []);
+  return { collapsedGroups, onToggleGroup };
+}
+
 /** Group header with the group's own mark and colour: a waiting hand, a spinner for work in progress, then the settled states. */
 const groupLooks: Record<Exclude<DashboardGroup, "running">, { icon: string; hue: Hue }> = {
   attention: { icon: "BellRing", hue: "warn" }, waiting: { icon: phases.idle.icon, hue: phases.idle.hue }, done: { icon: phases.done.icon, hue: phases.done.hue },
   quiet: { icon: phases.quiet.icon, hue: "muted" }, closed: { icon: phases.closed.icon, hue: "muted" }, recent: { icon: "History", hue: "muted" },
 };
-function GroupHeader({ theme, group, title, count }: { theme: PluginTheme; group: DashboardGroup; title: string; count: number }) {
+function GroupHeader({ theme, group, title, count, expanded, onToggle }: {
+  theme: PluginTheme; group: DashboardGroup; title: string; count: number; expanded: boolean; onToggle: (group: DashboardGroup) => void;
+}) {
   const { colors } = theme;
   const hue: Hue = group === "running" ? "run" : groupLooks[group].hue;
-  return <View accessibilityRole="header" style={{ flexDirection: "row", alignItems: "center", gap: space.xs + 2, minHeight: 32, paddingHorizontal: space.md, paddingTop: space.sm }}>
+  return <View testID={`session-group-${group}`} accessibilityRole="header" style={{ flexDirection: "row", alignItems: "center", gap: space.xs + 2, minHeight: 32, paddingHorizontal: space.md, paddingTop: space.xs }}>
     {group === "running" ? <Spinner size={12} color={hueColor(theme, hue)} active={count > 0} /> : <Icon name={groupLooks[group].icon} size={12} color={hueColor(theme, hue)} />}
-    <Text style={{ color: hueColor(theme, hue, "text"), fontSize: fontSize.meta, fontWeight: "600" }}>{title}</Text>
+    <Text numberOfLines={1} style={{ flexShrink: 1, color: hueColor(theme, hue, "text"), fontSize: fontSize.meta, fontWeight: "600" }}>{title}</Text>
     <Text style={{ color: colors.foregroundMuted, fontSize: fontSize.meta, fontVariant: ["tabular-nums"] }}>{count}</Text>
+    <Pressable accessibilityRole="button" accessibilityLabel={t(expanded ? "secondarySessionList.collapseGroup" : "secondarySessionList.expandGroup", { title })}
+      accessibilityState={{ expanded }} {...aria({ expanded })} onPress={() => onToggle(group)} hitSlop={6}
+      style={state => ({ marginLeft: "auto", flexShrink: 0, width: 28, height: 28, alignItems: "center", justifyContent: "center", borderRadius: radius.sm,
+        backgroundColor: state.pressed || (state as { hovered?: boolean }).hovered ? colors.surface1 : "transparent" })}>
+      <Icon name={expanded ? "ChevronDown" : "ChevronRight"} size={14} color={colors.foregroundMuted} />
+    </Pressable>
   </View>;
 }
 
-export function SessionList({ items, theme, compact, selectedId, expanded, forceExpanded = false, now, signals, rates, bases, heartbeats, marked, empty, listRef, onScrollEnd, onToggle, onSelect, onActions }: {
+export function SessionList({ items, theme, compact, selectedId, expanded, forceExpanded = false, collapsedGroups, onToggleGroup, now, signals, rates, bases, heartbeats, marked, empty, listRef, onScrollEnd, onToggle, onSelect, onActions }: {
   items: readonly SessionItem[]; theme: PluginTheme; compact: boolean; selectedId: string | null; expanded: ReadonlySet<string>; forceExpanded?: boolean; now: number; signals: ReadonlyMap<string, string>;
+  collapsedGroups: ReadonlySet<DashboardGroup>; onToggleGroup: (group: DashboardGroup) => void;
   rates?: ReadonlyMap<string, number>;
   /** Custom provider → the provider it extends, so `my-claude` shows Claude Code's mark. */
   bases?: ProviderBases;
@@ -263,6 +283,15 @@ export function SessionList({ items, theme, compact, selectedId, expanded, force
   empty: ReactNode; listRef?: Ref<NativeFlatList<SessionItem>>; onScrollEnd?: (offset: number) => void;
   onToggle: (agentId: string) => void; onSelect: (agentId: string) => void; onActions?: OpenSessionActions;
 }) {
+  // Filter before virtualization: hidden threads (including expanded children) leave no blank space.
+  // Lists without section headers (recent sorting or the archive) are unaffected.
+  const visibleItems = useMemo(() => {
+    let collapsed = false;
+    return items.filter(item => {
+      if (item.kind === "section") { collapsed = collapsedGroups.has(item.group); return true; }
+      return !collapsed;
+    });
+  }, [items, collapsedGroups]);
   // Rows re-render only when a shown rate changes (rounded to 0.1 tok/s).
   const ratesKey = useMemo(() => [...(rates ?? [])].map(([id, rate]) => `${id}:${rate.toFixed(1)}`).join(","), [rates]);
   const scrollEnd = onScrollEnd ? (event: NativeSyntheticEvent<NativeScrollEvent>) => onScrollEnd(event.nativeEvent.contentOffset.y) : undefined;
@@ -272,14 +301,14 @@ export function SessionList({ items, theme, compact, selectedId, expanded, force
     own.current = list;
     if (typeof listRef === "function") listRef(list); else if (listRef) (listRef as { current: NativeFlatList<SessionItem> | null }).current = list;
   }, [listRef]);
-  const keys = useMemo(() => items.map(item => item.key), [items]);
+  const keys = useMemo(() => visibleItems.map(item => item.key), [visibleItems]);
   useReorderMotion(keys, () => own.current?.getScrollableNode?.());
-  return <FlatList ref={setList} data={items as SessionItem[]} keyExtractor={item => item.key} style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ paddingHorizontal: space.xs, paddingBottom: space.xl }}
+  return <FlatList ref={setList} data={visibleItems} keyExtractor={item => item.key} style={{ flex: 1, minHeight: 0 }} contentContainerStyle={{ paddingHorizontal: space.xs, paddingBottom: space.xl }}
     onScrollEndDrag={scrollEnd} onMomentumScrollEnd={scrollEnd}
-    initialNumToRender={18} maxToRenderPerBatch={20} windowSize={7} keyboardShouldPersistTaps="handled" extraData={`${now}:${selectedId}:${expanded.size}:${forceExpanded}:${signals.size}:${ratesKey}:${heartbeats?.size ?? 0}:${marked?.size ?? 0}:${bases ? Object.keys(bases).length : -1}`}
+    initialNumToRender={18} maxToRenderPerBatch={20} windowSize={7} keyboardShouldPersistTaps="handled" extraData={`${now}:${selectedId}:${expanded.size}:${forceExpanded}:${signals.size}:${ratesKey}:${heartbeats?.size ?? 0}:${marked?.size ?? 0}:${bases ? Object.keys(bases).length : -1}:${[...collapsedGroups].join(",")}`}
     ListEmptyComponent={<View>{empty}</View>}
     renderItem={({ item }) => {
-      if (item.kind === "section") return <View {...motionKey(item.key)}><GroupHeader theme={theme} group={item.group} title={item.title} count={item.count} /></View>;
+      if (item.kind === "section") return <View {...motionKey(item.key)}><GroupHeader theme={theme} group={item.group} title={item.title} count={item.count} expanded={!collapsedGroups.has(item.group)} onToggle={onToggleGroup} /></View>;
       const agent = item.row.node.agent, id = agent.id, beats = heartbeats?.get(id);
       return <View {...motionKey(item.key)}><SessionRow item={item} theme={theme} compact={compact} selected={id === selectedId} expanded={forceExpanded || expanded.has(id)} timeLabel={agentTimeLabel(item.row.node.agent, now)}
         signal={signals.get(id)} rate={rates?.get(id)} harness={harnessOf(agent.provider, agent.hostId ? { [agent.provider]: bases?.[hostEntityId(agent.hostId, agent.provider)] ?? agent.provider } : bases)} heartbeats={beats} day={item.row.node.agent.stop ? now : dayOf(now)} marked={marked?.has(id) ?? false} onToggle={onToggle} onSelect={onSelect} onActions={onActions} /></View>;

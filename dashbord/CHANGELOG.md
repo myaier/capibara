@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.20.0-dev.8 · Capibara · 2026-10-21
+
+- Every session-state heading, including **Completed**, has a small right-hand chevron to collapse or expand its sessions independently. Groups start expanded; collapsing keeps the title and thread count visible and hides the whole group, including expanded sub-agents.
+- Group choices stay in the open dashboard while switching details, tabs or List / Plaza, filtering, or receiving live updates. Expanding restores the sub-agent tree as it was. Ungrouped sorting and the archive list remain unchanged; reopening the dashboard starts expanded again.
+- The controls support keyboard activation and expose their expanded state to screen readers, with English and Simplified Chinese labels.
+
 ## 2.20.0-dev.7 · Capibara · 2026-10-20
 
 - The session list has a **List / Plaza** switch at the top right (desktop and web; the Paseo phone app keeps the list). The plaza draws the same sessions as an office of capybara colleagues: every session sits at its own desk, desks are grouped by project, sessions working in the project folder itself share one long table, a session with its own worktree has a desk with a small flag, and sub-agents sit at a smaller desk beside their parent. The monitor's back shows the coding agent (Claude Code, Codex, Kimi Code, OpenCode or the provider's name), running sessions show their live output speed above their head, and each of the 16 states has its own face, posture, effect and screen light.
